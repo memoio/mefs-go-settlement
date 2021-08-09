@@ -57,9 +57,9 @@ type RoleMgr interface {
 
 	// by admin
 	CreateGroup(inds []uint64, level uint16, asign []byte) error
+	SetFsAddrForGroup(gIndex uint64, fAddr utils.Address, asign []byte) error
 	// by keeper and admin
 	AddKeeperToGroup(index, gIndex uint64, ksign, asign []byte) error
-
 	// by provider self; from == addrs[index]
 	AddProviderToGroup(index, gIndex uint64, psign []byte) error
 
@@ -69,6 +69,8 @@ type RoleMgr interface {
 	GetTokenByIndex(index uint32) (utils.Address, error)
 	GetAddressByIndex(index uint64) (utils.Address, error)
 	GetGroupByIndex(index uint64) (uint64, error)
+	GetKeepersByIndex(index uint64) ([]uint64, error)
+
 	GetPledgeInfo(addr utils.Address) (*PledgeInfo, error)
 	// stop service? not allowed
 	//KeeperQuit()

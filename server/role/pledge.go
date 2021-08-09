@@ -18,6 +18,19 @@ type TokenInfo struct {
 	lastRewardSupply *big.Int // 上一次变更时的本代币奖励总量
 }
 
+func (t TokenInfo) update(amount, totalPledge *big.Int) {
+	tv := new(big.Int)
+	tv.Add(tv, amount)
+	tv.Sub(tv, t.lastRewardSupply)
+	if tv.Cmp(zero) > 0 && totalPledge.Cmp(zero) > 0 {
+		tv.Div(tv, totalPledge)
+		t.rewardAccum.Add(t.rewardAccum, tv)
+		fmt.Println("acc has: ", t.rewardAccum.String(), amount.String())
+	}
+
+	t.lastRewardSupply = amount // update to lastest
+}
+
 type PledgeInfo struct {
 	amount      *big.Int // 映射代币的余额
 	locked      *big.Int
@@ -110,18 +123,7 @@ func (p *pledgeMgr) Stake(addr utils.Address, money *big.Int) error {
 	for taddr, ti := range p.tInfo {
 		bal := getBalance(taddr, p.local)
 
-		tv := new(big.Int)
-		tv.Add(tv, bal)
-		tv.Sub(tv, ti.lastRewardSupply)
-		if tv.Cmp(zero) > 0 {
-			if p.totalPledge.Cmp(zero) > 0 {
-				tv.Div(tv, p.totalPledge)
-				ti.rewardAccum.Add(ti.rewardAccum, tv)
-				fmt.Println("acc has: ", ti.rewardAccum.String(), bal.String())
-			}
-
-			ti.lastRewardSupply = bal // update to lastest
-		}
+		ti.update(bal, p.totalPledge)
 	}
 
 	pi, ok := p.pledges[addr]
@@ -189,19 +191,9 @@ func (p *pledgeMgr) Stake(addr utils.Address, money *big.Int) error {
 func (p *pledgeMgr) Withdraw(addr utils.Address, force bool) error {
 	// update tInfo first
 	for taddr, ti := range p.tInfo {
-		val := getBalance(taddr, p.local)
+		bal := getBalance(taddr, p.local)
 
-		tv := new(big.Int)
-		tv.Add(tv, val)
-		tv.Sub(tv, ti.lastRewardSupply)
-		if tv.Cmp(zero) > 0 {
-			if p.totalPledge.Cmp(zero) > 0 {
-				tv.Div(tv, p.totalPledge)
-				ti.rewardAccum.Add(ti.rewardAccum, tv)
-			}
-
-			ti.lastRewardSupply = val // update to lastest
-		}
+		ti.update(bal, p.totalPledge)
 	}
 
 	pi, ok := p.pledges[addr]

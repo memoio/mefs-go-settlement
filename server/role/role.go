@@ -35,7 +35,7 @@ type GroupInfo struct {
 	level     uint16        // security level
 	keepers   []uint64      // 里面有哪些Keeper
 	providers []uint64      // 有哪些provider
-	fsAddr    utils.Address // fs contract addr?
+	fsAddr    utils.Address // fs contract addr
 }
 
 var _ RoleMgr = (*roleMgr)(nil)
@@ -340,9 +340,23 @@ func (r *roleMgr) CreateGroup(inds []uint64, level uint16, signature []byte) err
 	return nil
 }
 
+func (r *roleMgr) SetFsAddrForGroup(gIndex uint64, fAddr utils.Address, asign []byte) error {
+	if len(r.groups) <= int(gIndex) {
+		return ErrRes
+	}
+
+	// verify fs.gindex
+
+	//verify r.groups[gIndex].fsAddr is not set
+
+	r.groups[gIndex].fsAddr = fAddr
+
+	return nil
+}
+
 func (r *roleMgr) AddKeeperToGroup(index, gIndex uint64, ksign, asign []byte) error {
 	if len(r.groups) <= int(gIndex) {
-		return nil
+		return ErrRes
 	}
 
 	// verify asign
@@ -406,6 +420,19 @@ func (r *roleMgr) GetAddressByIndex(index uint64) (utils.Address, error) {
 	}
 
 	return r.addrs[index], nil
+}
+
+func (r *roleMgr) GetKeepersByIndex(index uint64) ([]uint64, error) {
+	if index >= uint64(len(r.groups)) {
+		return nil, ErrRes
+	}
+
+	g := r.groups[index]
+	if !g.isActive || !g.isBanned {
+		return nil, ErrRes
+	}
+
+	return g.keepers, nil
 }
 
 func (r *roleMgr) GetGroupByIndex(index uint64) (uint64, error) {

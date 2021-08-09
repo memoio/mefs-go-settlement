@@ -2,11 +2,12 @@ package role
 
 import (
 	"math/big"
+	"time"
 
 	"github.com/memoio/go-settlement/utils"
 )
 
-// 某时刻的存储信息
+// StoreInfo is at some time
 type StoreInfo struct {
 	time       uint64   // 什么时刻的状态，start time of each cycle
 	size       uint64   // 在该存储节点上的存储总量，byte
@@ -14,74 +15,352 @@ type StoreInfo struct {
 	tokenIndex uint32   // 指明使用哪种代币付费
 }
 
-// 支付通道信息
+func newStoreInfo() *StoreInfo {
+	return &StoreInfo{
+		time:  0,
+		size:  0,
+		price: big.NewInt(1),
+	}
+}
+
+// Add called when AddOrder
+func (si *StoreInfo) Add(time, size uint64, sprice *big.Int) error {
+	if si.time < time {
+		return ErrRes
+	}
+
+	if si.size > 0 {
+		si.price.Mul(si.price, new(big.Int).SetUint64(si.size))
+	}
+
+	si.price.Add(si.price, sprice)
+
+	si.size += size
+
+	si.price.Div(si.price, new(big.Int).SetUint64(si.size))
+	return nil
+}
+
+// Sub sub size by SubOrder
+func (si *StoreInfo) Sub(end, size uint64, sprice *big.Int) error {
+	// time.N
+	if time.Now().Unix() < int64(end) {
+		return ErrRes
+	}
+
+	if si.size < size {
+		return ErrRes
+	}
+
+	si.price.Mul(si.price, new(big.Int).SetUint64(si.size))
+
+	si.price.Sub(si.price, sprice)
+
+	si.size -= size
+
+	if si.size > 0 {
+		si.price.Div(si.price, new(big.Int).SetUint64(si.size))
+	}
+	return nil
+}
+
+// ChannelInfo for user pay read to provider
 type ChannelInfo struct {
 	amount *big.Int // available amount
 	nonce  uint64   // 防止channel重复提交，pro提交后+1
 	expire uint64   // 用于channel到期，user取回
 }
 
-// 为链下某user与某Provider所有订单聚合而成的结算数据
-// 自带了Channel合约
+// AggregatedOrder is user->provider order and channel
 type AggregatedOrder struct {
-	isActive bool                    // 是否继续可用; add order 时候判断
-	index    uint64                  // provider index
-	sInfo    map[uint32]*StoreInfo   // 不同代币的支付信息
-	nonce    uint64                  // 防止order重复提交
-	subNonce uint64                  // 用于订单到期
-	channel  map[uint32]*ChannelInfo // tokenaddr->channel
+	nonce    uint64                // 防止order重复提交
+	subNonce uint64                // 用于订单到期
+	sInfo    map[uint32]*StoreInfo // 不同代币的支付信息
+
+	channel map[uint32]*ChannelInfo // tokenaddr->channel
 }
 
-// 文件系统
+func newAggregatedOrder() *AggregatedOrder {
+	return &AggregatedOrder{
+		nonce:    0,
+		subNonce: 0,
+		sInfo:    make(map[uint32]*StoreInfo),
+		channel:  make(map[uint32]*ChannelInfo),
+	}
+}
+
+// FSInfo each user have at most one per group
 type FSInfo struct {
-	tokenIndex uint32                      // 当前使用哪种token计费
-	user       uint64                      // 哪个user
-	keepers    []uint64                    // keeper地址的数组, 从pledge合约获取
-	providers  []uint64                    // provider地址的数组
-	amount     map[uint32]*big.Int         // available money in token, order进来的时候，减去相应的值到ProviderOrder中的maxPay
-	ao         map[uint64]*AggregatedOrder // 该User对每个Provider的订单信息
+	tokenIndex uint32              // 当前使用哪种token计费?记录
+	user       uint64              // 哪个user
+	amount     map[uint32]*big.Int // available money in token
+
+	providers []uint64                    // provider地址的数组
+	ao        map[uint64]*AggregatedOrder // 该User对每个Provider的订单信息
 }
 
-// users -> provider
+// Settlement is
 type Settlement struct {
-	maxPay     *big.Int // 对此provider所有user聚合总额度；expected 加和
-	hasPaid    *big.Int // 已经支付
-	canPay     *big.Int // 最近一次store/pay时刻，可以支付的金额
-	time       uint64   // store状态改变或pay时间
-	storeBytes uint64   // 在该存储节点上的存储总量
-	price      *big.Int // per epoch
-	tokenIndex uint64
+	time  uint64   // store状态改变或pay时间, align to epoch
+	size  uint64   // 在该存储节点上的存储总量
+	price *big.Int // per b*second
+
+	maxPay  *big.Int // 对此provider所有user聚合总额度；expected 加和
+	hasPaid *big.Int // 已经支付
+	lost    *big.Int // lost due to unable response to chal
+	canPay  *big.Int // 最近一次store/pay时刻，可以支付的金额
+
+	taxPay     *big.Int // pay for group keepers > endPaid+linearPaid
+	endPaid    *big.Int // release when order expire
+	linearPaid *big.Int // release when pay for provider
 }
 
-type ProSettlement struct { //记录某Provider所有订单信息
-	index  uint64 // provider序号
-	settle Settlement
+func newSettlement() *Settlement {
+	return &Settlement{
+		maxPay:  big.NewInt(0),
+		hasPaid: big.NewInt(0),
+		lost:    big.NewInt(0),
+		canPay:  big.NewInt(0),
+		price:   big.NewInt(1),
+
+		taxPay:     big.NewInt(0),
+		linearPaid: big.NewInt(0),
+		endPaid:    big.NewInt(0),
+	}
+}
+
+// Add is
+func (s *Settlement) Add(time, size uint64, sprice, pay, tax *big.Int) {
+	// update canPay
+	hp := new(big.Int)
+	if s.time < time {
+		hp.SetUint64(time - s.time)
+		hp.Mul(hp, new(big.Int).SetUint64(s.size))
+		hp.Mul(hp, s.price)
+
+		s.time = time
+	} else if s.time > time {
+		// add
+		hp.SetUint64(s.time - time)
+		hp.Mul(hp, sprice)
+	}
+	s.canPay.Add(s.canPay, hp)
+
+	// update price and size
+	s.price.Mul(s.price, new(big.Int).SetUint64(s.size))
+	s.price.Add(s.price, sprice)
+	s.size += size
+	s.price.Div(s.price, new(big.Int).SetUint64(s.size))
+
+	s.maxPay.Add(s.maxPay, pay)
+
+	// pay to keeper, 5% of pay
+	s.taxPay.Add(s.taxPay, tax)
+}
+
+// Sub ends
+func (s *Settlement) Sub(start, end, size uint64, sprice *big.Int) {
+	// update canPay
+	hp := new(big.Int)
+	if s.time < end {
+		hp.SetUint64(end - s.time)
+		hp.Mul(hp, new(big.Int).SetUint64(s.size))
+		hp.Mul(hp, s.price)
+		s.canPay.Add(s.canPay, hp)
+		s.time = end
+	} else if s.time > end {
+		// sub
+		hp.SetUint64(s.time - end)
+		hp.Mul(hp, sprice)
+		s.canPay.Sub(s.canPay, hp)
+	}
+
+	// update size and price
+	s.price.Mul(s.price, new(big.Int).SetUint64(s.size))
+	s.price.Sub(s.price, sprice)
+	s.size -= size
+	if s.size > 0 {
+		s.price.Div(s.price, new(big.Int).SetUint64(s.size))
+	}
+}
+
+// Calc ends
+func (s *Settlement) Calc(pay, lost *big.Int) (*big.Int, error) {
+	res := new(big.Int)
+	// has paid
+	if s.hasPaid.Cmp(pay) > 0 {
+		return res, ErrRes
+	}
+	// lost is not rigth
+	if lost.Cmp(s.lost) < 0 {
+		return res, ErrRes
+	}
+
+	ntime := uint64(time.Now().Unix())
+	if s.time < ntime {
+		hp := new(big.Int).SetUint64(ntime - s.time)
+		hp.Mul(hp, new(big.Int).SetUint64(s.size))
+		hp.Mul(hp, s.price)
+		s.canPay.Add(s.canPay, hp)
+		s.time = ntime
+	}
+
+	// can pay is right
+	if s.canPay.Cmp(pay) < 0 {
+		return res, ErrRes
+	}
+
+	return res.Sub(pay, s.hasPaid), nil
+}
+
+type nodeKey struct {
+	id  uint64 // node
+	tid uint32 // token
+}
+
+type keeperStat struct {
+	time   int64               // added time; for end pay
+	amount map[uint32]*big.Int // available money can be withdrawed
+}
+
+// pay info per token
+type tokenPay struct {
+	index int
+	acc   *big.Int
+}
+
+type kPay struct {
+	acc    []*big.Int
+	amount []*big.Int
+}
+
+type kSettle struct {
+	keepers []uint64
+	pay     map[uint64]*kPay
+	tokens  []uint32
+	tAcc    map[uint32]*tokenPay
+}
+
+func (k *kSettle) Add(tokenIndex uint32, amount *big.Int) error {
+	ti, ok := k.tAcc[tokenIndex]
+	if !ok {
+		// verify tokenIndex first
+		ti = &tokenPay{
+			index: len(k.tokens),
+			acc:   big.NewInt(0),
+		}
+		k.tAcc[tokenIndex] = ti
+		k.tokens = append(k.tokens, tokenIndex)
+
+		for _, keeper := range k.keepers {
+			ki, ok := k.pay[keeper]
+			if !ok {
+				return ErrRes
+			}
+			ki.acc = append(ki.acc, big.NewInt(0))
+			ki.amount = append(ki.amount, big.NewInt(0))
+		}
+	}
+
+	tv := new(big.Int).Set(amount)
+	tv.Div(tv, new(big.Int).SetInt64(int64(len(k.keepers))))
+	ti.acc.Add(ti.acc, tv)
+
+	return nil
+}
+
+func (k *kSettle) AddKeeper(keeper uint64) error {
+	ki, ok := k.pay[keeper]
+	if ok {
+		return ErrRes
+	}
+
+	ki = &kPay{
+		acc:    make([]*big.Int, len(k.tokens)),
+		amount: make([]*big.Int, len(k.tokens)),
+	}
+
+	for i, tindex := range k.tokens {
+		ti, ok := k.tAcc[tindex]
+		if !ok {
+			return ErrRes
+		}
+		ki.acc[i] = new(big.Int).Set(ti.acc)
+		ki.amount[i] = new(big.Int)
+	}
+
+	return nil
+}
+
+func (k *kSettle) Withdraw(keeper uint64, tokenIndex uint32, amount *big.Int) error {
+	ki, ok := k.pay[keeper]
+	if !ok {
+		return ErrRes
+	}
+
+	ti, ok := k.tAcc[tokenIndex]
+	if !ok {
+		return ErrRes
+	}
+
+	tmp := new(big.Int).Sub(ti.acc, ki.acc[ti.index])
+
+	ki.amount[ti.index].Add(ki.amount[ti.index], tmp)
+	ki.acc[ti.index].Set(ti.acc)
+
+	// transfer
+
+	return nil
 }
 
 type fsMgr struct {
-	local utils.Address // contract of this mgr
-	admin utils.Address // owner
+	local    utils.Address // contract of this mgr
+	admin    utils.Address // owner
+	roleAddr utils.Address // address of roleMgr
 
-	roleAddr utils.Address
+	taxRate int // %5 for group, 4% linear and 1% at end;
 
-	gIndex  uint64 // belongs to which group?
+	gIndex uint64 // belongs to which group?
+
 	fsInfo  []*FSInfo
-	proInfo map[uint64]*ProSettlement
+	kInfo   *kSettle
+	proInfo map[nodeKey]*Settlement
 }
 
-func NewFsMgr(caller, rAddr utils.Address) *fsMgr {
+func NewFsMgr(caller, rAddr utils.Address, gIndex uint64) (*fsMgr, error) {
+	rm, err := getRoleMgrByAddress(rAddr)
+	if err != nil {
+		return nil, err
+	}
+
+	keepers, err := rm.GetKeepersByIndex(gIndex)
+	if err != nil {
+		return nil, err
+	}
+
+	ks := &kSettle{
+		keepers: keepers,
+		pay:     make(map[uint64]*kPay),
+		tokens:  make([]uint32, 0, 1),
+		tAcc:    make(map[uint32]*tokenPay),
+	}
+
 	local := utils.GetContractAddress(caller, []byte("FsMgr"))
 	fm := &fsMgr{
 		local:    local,
 		admin:    caller,
 		roleAddr: rAddr,
+		gIndex:   gIndex,
+		taxRate:  5, // 5% for keeper
 		fsInfo:   make([]*FSInfo, 0, 1),
+		proInfo:  make(map[nodeKey]*Settlement),
+		kInfo:    ks,
 	}
 
-	return fm
+	return fm, nil
 }
 
-func (f *fsMgr) CreateFs(user uint64, payToken uint32, keeper, provider []uint64, sign []byte) *FSInfo {
+func (f *fsMgr) CreateFs(user uint64, payToken uint32, sign []byte) *FSInfo {
 	// valid addr is user
 	// valid paytoken is valid
 
@@ -94,8 +373,6 @@ func (f *fsMgr) CreateFs(user uint64, payToken uint32, keeper, provider []uint64
 	fi := &FSInfo{
 		tokenIndex: payToken,
 		user:       user,
-		keepers:    keeper,
-		providers:  provider,
 		amount:     make(map[uint32]*big.Int),
 		ao:         make(map[uint64]*AggregatedOrder),
 	}
@@ -143,7 +420,7 @@ func (f *fsMgr) Recharge(fsIndex uint64, tokenIndex uint32, money *big.Int, sign
 	return nil
 }
 
-func (f *fsMgr) AddOrder(fsIndex, proIndex, start, end, size uint64, tokenIndex uint32, price *big.Int, sign []byte) error {
+func (f *fsMgr) AddOrder(fsIndex, proIndex, start, end, size, nonce uint64, tokenIndex uint32, sprice *big.Int, sign []byte) error {
 	// check params
 	if size <= 0 {
 		return ErrRes
@@ -153,23 +430,38 @@ func (f *fsMgr) AddOrder(fsIndex, proIndex, start, end, size uint64, tokenIndex 
 		return ErrRes
 	}
 
+	// get instance by address
+	rm, err := getRoleMgrByAddress(f.roleAddr)
+	if err != nil {
+		return err
+	}
+
 	fi := f.fsInfo[fsIndex]
 
+	_, err = rm.GetAddressByIndex(fi.user)
+	if err != nil {
+		return err
+	}
+
+	// verify sign
+
+	// verify money is enough
 	bal, ok := fi.amount[tokenIndex]
 	if !ok {
 		return ErrRes
 	}
 
 	pay := new(big.Int).SetUint64(end - start)
-	pay.Mul(pay, price)
+	pay.Mul(pay, sprice)
 
-	if pay.Cmp(bal) < 0 {
+	tax := new(big.Int).SetUint64(5)
+	tax.Mul(tax, pay)
+	tax.Div(tax, big.NewInt(100))
+
+	payAndTax := new(big.Int)
+	payAndTax.Add(pay, tax)
+	if payAndTax.Cmp(bal) < 0 {
 		return ErrRes
-	}
-
-	rm, err := getRoleMgrByAddress(f.roleAddr)
-	if err != nil {
-		return err
 	}
 
 	pi, ok := fi.ao[proIndex]
@@ -183,61 +475,181 @@ func (f *fsMgr) AddOrder(fsIndex, proIndex, start, end, size uint64, tokenIndex 
 			return ErrRes
 		}
 
-		pi = &AggregatedOrder{
-			isActive: true,
-			index:    0,
-			nonce:    0,
-			subNonce: 0,
-			sInfo:    make(map[uint32]*StoreInfo),
-			channel:  make(map[uint32]*ChannelInfo),
-		}
+		fi.providers = append(fi.providers, proIndex)
 
+		pi = newAggregatedOrder()
 		fi.ao[proIndex] = pi
 
-		newPay := big.NewInt(10000)
-		newPay.Add(newPay, pay)
-
-		if newPay.Cmp(fi.amount[tokenIndex]) >= 0 {
-			ch := &ChannelInfo{
-				nonce:  0,
-				amount: big.NewInt(10000),
-				expire: end, // added?
-			}
-
-			pi.channel[tokenIndex] = ch
-			fi.amount[tokenIndex].Sub(fi.amount[tokenIndex], ch.amount)
+		ch := &ChannelInfo{
+			nonce:  0,
+			amount: big.NewInt(0), // pay from amount
+			expire: end,           // added?
 		}
+		pi.channel[tokenIndex] = ch
+	}
+
+	if pi.nonce != nonce {
+		return ErrRes
 	}
 
 	si, ok := pi.sInfo[tokenIndex]
 	if !ok {
-		si = &StoreInfo{
-			time:  start,
-			size:  0,
-			price: big.NewInt(1),
-		}
-
+		si = newStoreInfo()
 		pi.sInfo[tokenIndex] = si
 	}
 
-	if si.time < start {
+	err = si.Add(start, size, sprice)
+	if err != nil {
 		return ErrRes
 	}
 
-	si.price.Mul(si.price, new(big.Int).SetUint64(si.size))
-	si.price.Add(si.price, price)
+	nKey := nodeKey{
+		id:  proIndex,
+		tid: tokenIndex,
+	}
 
-	si.size += size
+	se, ok := f.proInfo[nKey]
+	if !ok {
+		se := newSettlement()
+		f.proInfo[nKey] = se
+	}
 
-	si.price.Div(si.price, new(big.Int).SetUint64(si.size))
+	se.Add(start, size, sprice, pay, tax)
 
-	uAddr, err := rm.GetAddressByIndex(fi.user)
+	fi.amount[tokenIndex].Sub(fi.amount[tokenIndex], payAndTax)
+	pi.nonce++
+	return nil
+}
+
+func (f *fsMgr) SubOrder(fsIndex, proIndex, start, end, size, nonce uint64, tokenIndex uint32, sprice *big.Int, sign []byte) error {
+	// check params
+	if size <= 0 {
+		return ErrRes
+	}
+
+	if fsIndex >= uint64(len(f.fsInfo)) {
+		return ErrRes
+	}
+
+	// get instance by address
+	rm, err := getRoleMgrByAddress(f.roleAddr)
 	if err != nil {
 		return err
 	}
 
-	// verify sign
-	uAddr.String()
+	fi := f.fsInfo[fsIndex]
+
+	_, err = rm.GetAddressByIndex(fi.user)
+	if err != nil {
+		return err
+	}
+
+	pi, ok := fi.ao[proIndex]
+	if !ok {
+		return ErrRes
+	}
+
+	if pi.subNonce != nonce {
+		return ErrRes
+	}
+
+	si, ok := pi.sInfo[tokenIndex]
+	if !ok {
+		return ErrRes
+	}
+
+	err = si.Sub(end, size, sprice)
+	if err != nil {
+		return err
+	}
+
+	nKey := nodeKey{
+		id:  proIndex,
+		tid: tokenIndex,
+	}
+
+	se, ok := f.proInfo[nKey]
+	if !ok {
+		return ErrRes
+	}
+
+	se.Sub(start, end, size, sprice)
+
+	// pay to keeper, 4% for linear; due to pro no trigger pay
+	// todo
+
+	// pay to keeper, 1% for endpay
+	endPaid := new(big.Int).SetUint64(end - start)
+	endPaid.Mul(endPaid, sprice)
+	endPaid.Div(endPaid, new(big.Int).SetUint64(100))
+
+	f.kInfo.Add(tokenIndex, endPaid)
+
+	se.endPaid.Add(se.endPaid, endPaid)
+
+	return nil
+}
+
+func (f *fsMgr) Withdraw(fsIndex, proIndex uint64, tokenIndex uint32, pay, lost *big.Int, sign []byte) error {
+	if fsIndex >= uint64(len(f.fsInfo)) {
+		return ErrRes
+	}
+
+	// get instance by address
+	rm, err := getRoleMgrByAddress(f.roleAddr)
+	if err != nil {
+		return err
+	}
+
+	fi := f.fsInfo[fsIndex]
+
+	_, err = rm.GetAddressByIndex(fi.user)
+	if err != nil {
+		return err
+	}
+
+	nKey := nodeKey{
+		id:  proIndex,
+		tid: tokenIndex,
+	}
+
+	se, ok := f.proInfo[nKey]
+	if !ok {
+		return ErrRes
+	}
+
+	// pay to provider
+	thisPay, err := se.Calc(pay, lost)
+	if err != nil {
+		return err
+	}
+
+	proAddr, err := rm.GetAddressByIndex(proIndex)
+	if err != nil {
+		return err
+	}
+
+	tAddr, err := rm.GetTokenByIndex(tokenIndex)
+	if err != nil {
+		return err
+	}
+
+	err = sendBalance(tAddr, f.local, proAddr, thisPay)
+	if err != nil {
+		return err
+	}
+
+	se.lost = lost
+	se.hasPaid = pay
+
+	// linear pay to keepers
+	lpay := new(big.Int).Mul(se.hasPaid, big.NewInt(4))
+	lpay.Div(lpay, big.NewInt(4))
+	if lpay.Cmp(se.linearPaid) > 0 {
+		lpay.Sub(lpay, se.linearPaid)
+		f.kInfo.Add(tokenIndex, lpay)
+		se.linearPaid.Add(se.linearPaid, lpay)
+	}
 
 	return nil
 }
