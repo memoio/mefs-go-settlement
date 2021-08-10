@@ -24,10 +24,20 @@ type info interface {
 	GetOwnerAddress() utils.Address
 }
 
+// ErcToken is
+// 参考：https://zhuanlan.zhihu.com/p/391837660
 type ErcToken interface {
-	Transfer(caller, to utils.Address, value *big.Int) error
-	Balance(from utils.Address) *big.Int
+	// 查询
+	TotalSupply() *big.Int
+	BalanceOf(tokenOwner utils.Address) *big.Int
+	Allowance(tokenOwner, spender utils.Address) *big.Int
 
+	// 处理， caller is from msg.Sender in real contract
+	Approve(caller, spender utils.Address, value *big.Int)
+	Transfer(caller, to utils.Address, value *big.Int) error
+	TransferFrom(caller, from, to utils.Address, value *big.Int) error
+
+	// 额外的辅助接口
 	info
 }
 
@@ -43,7 +53,7 @@ type PledgePool interface {
 	info
 }
 
-// can be admin by multiple signatures, non-destroy
+// RoleMgr can be admin by multiple signatures, non-destroy
 // now, single sign
 type RoleMgr interface {
 	// 质押, 元交易
@@ -78,4 +88,24 @@ type RoleMgr interface {
 	//ProviderQuit()
 	// can quit?
 	//UserQuit()
+}
+
+// FsMgr manage, create by admin
+type FsMgr interface {
+	// by user
+	CreateFs(user uint64, payToken uint32, asign []byte) error
+	// by user
+	Recharge(fsIndex uint64, tokenIndex uint32, money *big.Int, sign []byte) error
+
+	// by user sign and keepers sign
+	AddOrder(fsIndex, proIndex, start, end, size, nonce uint64, tokenIndex uint32, sprice *big.Int, sign []byte) error
+	SubOrder(fsIndex, proIndex, start, end, size, nonce uint64, tokenIndex uint32, sprice *big.Int, sign []byte) error
+	ProWithdraw(fsIndex, proIndex uint64, tokenIndex uint32, pay, lost *big.Int, sign []byte) error
+
+	KeeperWithdraw(keeperIndex uint64, tokenIndex uint32, amount *big.Int, sign []byte) error
+
+	GetFsIndex(user uint64) (uint64, error)
+	GetFsInfo(fsIndex uint64) (uint32, []uint64, error)
+
+	info
 }

@@ -11,9 +11,11 @@ var base = int64(1000000000)
 var _ ErcToken = (*ercToken)(nil)
 
 type ercToken struct {
-	local utils.Address // contract utils.Address
-	admin utils.Address // owner
-	money map[utils.Address]*big.Int
+	local       utils.Address // contract utils.Address
+	admin       utils.Address // owner
+	totalSupply *big.Int
+	money       map[utils.Address]*big.Int
+	allowed     map[utils.Address]map[utils.Address]*big.Int
 }
 
 func NewErcToken(caller utils.Address) (ErcToken, error) {
@@ -22,53 +24,119 @@ func NewErcToken(caller utils.Address) (ErcToken, error) {
 	local := utils.GetContractAddress(caller, []byte("ErcToken"))
 
 	et := &ercToken{
-		admin: caller,
-		local: local,
-		money: make(map[utils.Address]*big.Int),
+		admin:       caller,
+		local:       local,
+		money:       make(map[utils.Address]*big.Int),
+		allowed:     make(map[utils.Address]map[utils.Address]*big.Int),
+		totalSupply: new(big.Int).Mul(big.NewInt(base), big.NewInt(base)),
 	}
 
-	et.money[caller] = new(big.Int).Mul(big.NewInt(base), big.NewInt(base))
+	et.money[caller] = new(big.Int).Set(et.totalSupply)
 
 	globalMap[local] = et
 	return et, nil
 }
 
-func (e *ercToken) Transfer(caller, to utils.Address, value *big.Int) error {
-	// verify from
-	if value.Cmp(zero) < 0 {
-		return ErrRes
-	}
-
-	val, ok := e.money[caller]
-	if !ok {
-		return ErrRes
-	}
-
-	if val.Cmp(value) < 0 {
-		return ErrRes
-	}
-	val.Sub(val, value)
-
-	valto, ok := e.money[to]
-	if !ok {
-		valto = big.NewInt(0)
-		e.money[to] = valto
-	}
-
-	valto.Add(valto, value)
-
-	return nil
+func (e *ercToken) TotalSupply() *big.Int {
+	return new(big.Int).Set(e.totalSupply)
 }
 
-func (e *ercToken) Balance(from utils.Address) *big.Int {
+func (e *ercToken) BalanceOf(from utils.Address) *big.Int {
 	res := new(big.Int)
-
 	val, ok := e.money[from]
 	if ok {
 		res.Add(res, val)
 	}
 
 	return res
+}
+
+func (e *ercToken) Allowance(tokenOwner, spender utils.Address) *big.Int {
+	res := new(big.Int)
+	val, ok := e.allowed[tokenOwner][spender]
+	if ok {
+		res.Add(res, val)
+	}
+	return res
+}
+
+func (e *ercToken) Transfer(caller, to utils.Address, value *big.Int) error {
+	// verify to is not zero
+	// verify value > 0
+	if value.Cmp(zero) < 0 {
+		return ErrRes
+	}
+
+	// verify money is enough
+	val, ok := e.money[caller]
+	if !ok {
+		return ErrRes
+	}
+	if val.Cmp(value) < 0 {
+		return ErrRes
+	}
+
+	// sub from caller
+	val.Sub(val, value)
+
+	// add to to
+	valto, ok := e.money[to]
+	if !ok {
+		valto = big.NewInt(0)
+		e.money[to] = valto
+	}
+	valto.Add(valto, value)
+
+	return nil
+}
+
+// 用于合约账户将erc token转入合约账户中
+func (e *ercToken) Approve(caller, spender utils.Address, value *big.Int) {
+	e.allowed[caller][spender] = new(big.Int).Set(value)
+}
+
+func (e *ercToken) TransferFrom(caller, from, to utils.Address, value *big.Int) error {
+	// verify from and to is not zero address
+	// verify value > 0
+	if value.Cmp(zero) < 0 {
+		return ErrRes
+	}
+
+	// verify money is enough
+	val, ok := e.money[from]
+	if !ok {
+		return ErrRes
+	}
+	if val.Cmp(value) < 0 {
+		return ErrRes
+	}
+
+	// verify money is allowed by caller
+	aval, ok := e.allowed[from][caller]
+	if !ok {
+		return ErrRes
+	}
+	if val.Cmp(value) < 0 {
+		return ErrRes
+	}
+	if aval.Cmp(value) < 0 {
+		return ErrRes
+	}
+
+	// sub from from
+	val.Sub(val, value)
+	// sub from allowed
+	aval.Sub(aval, value)
+
+	// add to to
+	valto, ok := e.money[to]
+	if !ok {
+		valto = big.NewInt(0)
+		e.money[to] = valto
+	}
+	valto.Add(valto, value)
+
+	return nil
 }
 
 func (e *ercToken) GetContractAddress() utils.Address {
@@ -90,7 +158,7 @@ func getBalance(taddr, query utils.Address) *big.Int {
 	if !ok {
 		return big.NewInt(0)
 	}
-	return et.Balance(query)
+	return et.BalanceOf(query)
 }
 
 // taddr对应的erc20上从from到to
