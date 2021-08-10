@@ -1,4 +1,4 @@
-package role
+package contract
 
 import (
 	"math/big"
@@ -11,7 +11,7 @@ import (
 type StoreInfo struct {
 	time  uint64   // 什么时刻的状态，start time of each cycle
 	size  uint64   // 在该存储节点上的存储总量，byte
-	price *big.Int // 按周期计费，比如一周期为一个区块
+	price *big.Int // 按周期计费，比如一周期为一个区块?
 }
 
 func newStoreInfo() *StoreInfo {
@@ -22,8 +22,7 @@ func newStoreInfo() *StoreInfo {
 	}
 }
 
-// Add called when AddOrder
-func (si *StoreInfo) Add(time, size uint64, sprice *big.Int) error {
+func (si *StoreInfo) add(time, size uint64, sprice *big.Int) error {
 	if si.time < time {
 		return ErrRes
 	}
@@ -40,8 +39,7 @@ func (si *StoreInfo) Add(time, size uint64, sprice *big.Int) error {
 	return nil
 }
 
-// Sub sub size by SubOrder
-func (si *StoreInfo) Sub(end, size uint64, sprice *big.Int) error {
+func (si *StoreInfo) sub(end, size uint64, sprice *big.Int) error {
 	// time.N
 	if time.Now().Unix() < int64(end) {
 		return ErrRes
@@ -129,7 +127,7 @@ func newSettlement() *Settlement {
 }
 
 // Add is
-func (s *Settlement) Add(time, size uint64, sprice, pay, tax *big.Int) {
+func (s *Settlement) add(time, size uint64, sprice, pay, tax *big.Int) {
 	// update canPay
 	hp := new(big.Int)
 	if s.time < time {
@@ -158,7 +156,7 @@ func (s *Settlement) Add(time, size uint64, sprice, pay, tax *big.Int) {
 }
 
 // Sub ends
-func (s *Settlement) Sub(start, end, size uint64, sprice *big.Int) {
+func (s *Settlement) sub(start, end, size uint64, sprice *big.Int) {
 	// update canPay
 	hp := new(big.Int)
 	if s.time < end {
@@ -184,7 +182,7 @@ func (s *Settlement) Sub(start, end, size uint64, sprice *big.Int) {
 }
 
 // Calc ends called by withdraw
-func (s *Settlement) Calc(pay, lost *big.Int) (*big.Int, error) {
+func (s *Settlement) calc(pay, lost *big.Int) (*big.Int, error) {
 	res := new(big.Int)
 	// has paid
 	if s.hasPaid.Cmp(pay) > 0 {
@@ -235,7 +233,7 @@ type kSettle struct {
 	tAcc    map[uint32]*big.Int
 }
 
-func (k *kSettle) Add(tokenIndex uint32, amount *big.Int) error {
+func (k *kSettle) add(tokenIndex uint32, amount *big.Int) error {
 	ti, ok := k.tAcc[tokenIndex]
 	if !ok {
 		// verify tokenIndex first
@@ -266,7 +264,7 @@ func (k *kSettle) Add(tokenIndex uint32, amount *big.Int) error {
 	return nil
 }
 
-func (k *kSettle) AddKeeper(keeper uint64) error {
+func (k *kSettle) addKeeper(keeper uint64) error {
 	for _, tindex := range k.tokens {
 		ti, ok := k.tAcc[tindex]
 		if !ok {
@@ -289,7 +287,7 @@ func (k *kSettle) AddKeeper(keeper uint64) error {
 	return nil
 }
 
-func (k *kSettle) Withdraw(keeper uint64, tokenIndex uint32) error {
+func (k *kSettle) withdraw(keeper uint64, tokenIndex uint32) error {
 	nk := nodeKey{
 		tid: tokenIndex,
 		id:  keeper,
@@ -383,8 +381,9 @@ func (f *fsMgr) GetFsIndex(user uint64) (uint64, error) {
 	return 0, ErrRes
 }
 
-func (f *fsMgr) GetFsInfo(fsIndex uint64) (uint32, []uint64, error) {
-	if fsIndex >= uint64(len(f.fsInfo)) {
+func (f *fsMgr) GetFsInfo(user uint64) (uint32, []uint64, error) {
+	fsIndex, err := f.GetFsIndex(user)
+	if err != nil {
 		return 0, nil, ErrRes
 	}
 
@@ -419,8 +418,9 @@ func (f *fsMgr) CreateFs(user uint64, payToken uint32, sign []byte) error {
 }
 
 // 充值
-func (f *fsMgr) Recharge(fsIndex uint64, tokenIndex uint32, money *big.Int, sign []byte) error {
-	if fsIndex >= uint64(len(f.fsInfo)) {
+func (f *fsMgr) Recharge(user uint64, tokenIndex uint32, money *big.Int, sign []byte) error {
+	fsIndex, err := f.GetFsIndex(user)
+	if err != nil {
 		return ErrRes
 	}
 	fi := f.fsInfo[fsIndex]
@@ -458,13 +458,14 @@ func (f *fsMgr) Recharge(fsIndex uint64, tokenIndex uint32, money *big.Int, sign
 	return nil
 }
 
-func (f *fsMgr) AddOrder(fsIndex, proIndex, start, end, size, nonce uint64, tokenIndex uint32, sprice *big.Int, sign []byte) error {
+func (f *fsMgr) AddOrder(user, proIndex, start, end, size, nonce uint64, tokenIndex uint32, sprice *big.Int, sign []byte) error {
 	// check params
 	if size <= 0 {
 		return ErrRes
 	}
 
-	if fsIndex >= uint64(len(f.fsInfo)) {
+	fsIndex, err := f.GetFsIndex(user)
+	if err != nil {
 		return ErrRes
 	}
 
@@ -536,7 +537,7 @@ func (f *fsMgr) AddOrder(fsIndex, proIndex, start, end, size, nonce uint64, toke
 		pi.sInfo[tokenIndex] = si
 	}
 
-	err = si.Add(start, size, sprice)
+	err = si.add(start, size, sprice)
 	if err != nil {
 		return ErrRes
 	}
@@ -552,20 +553,21 @@ func (f *fsMgr) AddOrder(fsIndex, proIndex, start, end, size, nonce uint64, toke
 		f.proInfo[nKey] = se
 	}
 
-	se.Add(start, size, sprice, pay, tax)
+	se.add(start, size, sprice, pay, tax)
 
 	fi.amount[tokenIndex].Sub(fi.amount[tokenIndex], payAndTax)
 	pi.nonce++
 	return nil
 }
 
-func (f *fsMgr) SubOrder(fsIndex, proIndex, start, end, size, nonce uint64, tokenIndex uint32, sprice *big.Int, sign []byte) error {
+func (f *fsMgr) SubOrder(user, proIndex, start, end, size, nonce uint64, tokenIndex uint32, sprice *big.Int, sign []byte) error {
 	// check params
 	if size <= 0 {
 		return ErrRes
 	}
 
-	if fsIndex >= uint64(len(f.fsInfo)) {
+	fsIndex, err := f.GetFsIndex(user)
+	if err != nil {
 		return ErrRes
 	}
 
@@ -596,7 +598,7 @@ func (f *fsMgr) SubOrder(fsIndex, proIndex, start, end, size, nonce uint64, toke
 		return ErrRes
 	}
 
-	err = si.Sub(end, size, sprice)
+	err = si.sub(end, size, sprice)
 	if err != nil {
 		return err
 	}
@@ -611,7 +613,7 @@ func (f *fsMgr) SubOrder(fsIndex, proIndex, start, end, size, nonce uint64, toke
 		return ErrRes
 	}
 
-	se.Sub(start, end, size, sprice)
+	se.sub(start, end, size, sprice)
 
 	// pay to keeper, 4% for linear; due to pro no trigger pay
 	// todo
@@ -621,15 +623,16 @@ func (f *fsMgr) SubOrder(fsIndex, proIndex, start, end, size, nonce uint64, toke
 	endPaid.Mul(endPaid, sprice)
 	endPaid.Div(endPaid, new(big.Int).SetUint64(100))
 
-	f.kInfo.Add(tokenIndex, endPaid)
+	f.kInfo.add(tokenIndex, endPaid)
 
 	se.endPaid.Add(se.endPaid, endPaid)
 
 	return nil
 }
 
-func (f *fsMgr) ProWithdraw(fsIndex, proIndex uint64, tokenIndex uint32, pay, lost *big.Int, sign []byte) error {
-	if fsIndex >= uint64(len(f.fsInfo)) {
+func (f *fsMgr) ProWithdraw(user, proIndex uint64, tokenIndex uint32, pay, lost *big.Int, sign []byte) error {
+	fsIndex, err := f.GetFsIndex(user)
+	if err != nil {
 		return ErrRes
 	}
 
@@ -657,7 +660,7 @@ func (f *fsMgr) ProWithdraw(fsIndex, proIndex uint64, tokenIndex uint32, pay, lo
 	}
 
 	// pay to provider
-	thisPay, err := se.Calc(pay, lost)
+	thisPay, err := se.calc(pay, lost)
 	if err != nil {
 		return err
 	}
@@ -685,7 +688,7 @@ func (f *fsMgr) ProWithdraw(fsIndex, proIndex uint64, tokenIndex uint32, pay, lo
 	lpay.Div(lpay, big.NewInt(4))
 	if lpay.Cmp(se.linearPaid) > 0 {
 		lpay.Sub(lpay, se.linearPaid)
-		f.kInfo.Add(tokenIndex, lpay)
+		f.kInfo.add(tokenIndex, lpay)
 		se.linearPaid.Add(se.linearPaid, lpay)
 	}
 
@@ -693,7 +696,7 @@ func (f *fsMgr) ProWithdraw(fsIndex, proIndex uint64, tokenIndex uint32, pay, lo
 }
 
 func (f *fsMgr) KeeperWithdraw(keeper uint64, tokenIndex uint32, amount *big.Int, sign []byte) error {
-	err := f.kInfo.Withdraw(keeper, tokenIndex)
+	err := f.kInfo.withdraw(keeper, tokenIndex)
 	if err != nil {
 		return err
 	}

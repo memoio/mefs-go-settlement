@@ -1,4 +1,4 @@
-package role
+package contract
 
 import (
 	"crypto/rand"

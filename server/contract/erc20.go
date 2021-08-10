@@ -1,4 +1,4 @@
-package role
+package contract
 
 import (
 	"math/big"
@@ -18,6 +18,7 @@ type ercToken struct {
 	allowed     map[utils.Address]map[utils.Address]*big.Int
 }
 
+// NewErcToken create
 func NewErcToken(caller utils.Address) (ErcToken, error) {
 	// verify
 	// get local utils.Address

@@ -1,4 +1,4 @@
-package role
+package contract
 
 import (
 	"fmt"
@@ -36,6 +36,19 @@ type PledgeInfo struct {
 	locked      *big.Int
 	rewardAccum []*big.Int // 质押开始时的accumulator，索引和代币对应
 	rewards     []*big.Int // 已结算的奖励，索引和代币对应
+}
+
+// PledgePool is for stake and withdraw
+type PledgePool interface {
+	AddToken(addr utils.Address) error
+	Stake(addr utils.Address, money *big.Int) error
+	Withdraw(addr utils.Address, force bool) error
+	WithdrawToken(addr, tokenAddr utils.Address, money *big.Int) error
+
+	GetPledgeInfo(addr utils.Address) (*PledgeInfo, error)
+	GetAddressByIndex(index uint32) (utils.Address, error)
+
+	info
 }
 
 var _ PledgePool = (*pledgeMgr)(nil)
