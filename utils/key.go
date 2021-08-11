@@ -16,6 +16,9 @@ const (
 
 type Address [AddressLength]byte
 
+// NilAddress is a nil
+var NilAddress Address
+
 func BytesToAddress(b []byte) Address {
 	var a Address
 	a.SetBytes(b)

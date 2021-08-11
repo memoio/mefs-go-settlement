@@ -303,6 +303,10 @@ func (f *fsMgr) GetOwnerAddress() utils.Address {
 	return f.admin
 }
 
+func (f *fsMgr) GetInfo(caller utils.Address) uint64 {
+	return f.gIndex
+}
+
 func (f *fsMgr) GetFsInfo(caller utils.Address, user uint64) (uint32, []uint64, error) {
 	fi, ok := f.fsInfo[user]
 	if !ok {
@@ -739,11 +743,6 @@ func (f *fsMgr) addToGroup(tokenIndex uint32, amount *big.Int) error {
 	tv := new(big.Int).Set(amount)
 	tv.Div(tv, new(big.Int).SetInt64(int64(len(f.keepers))))
 	ti.Add(ti, tv)
-
-	return nil
-}
-
-func (f *fsMgr) AddKeeper(keeper uint64) error {
 
 	return nil
 }

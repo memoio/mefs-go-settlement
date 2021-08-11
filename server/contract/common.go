@@ -21,6 +21,42 @@ func init() {
 	globalMap = make(map[utils.Address]interface{})
 }
 
+func getErcToken(addr utils.Address) (ErcToken, error) {
+	ri, ok := globalMap[addr]
+	if ok {
+		r, ok := ri.(ErcToken)
+		if ok {
+			return r, nil
+		}
+	}
+
+	return nil, ErrRes
+}
+
+func getRoleMgr(addr utils.Address) (RoleMgr, error) {
+	ri, ok := globalMap[addr]
+	if ok {
+		r, ok := ri.(RoleMgr)
+		if ok {
+			return r, nil
+		}
+	}
+
+	return nil, ErrRes
+}
+
+func getFsMgr(addr utils.Address) (FsMgr, error) {
+	ri, ok := globalMap[addr]
+	if ok {
+		r, ok := ri.(FsMgr)
+		if ok {
+			return r, nil
+		}
+	}
+
+	return nil, ErrRes
+}
+
 type info interface {
 	GetContractAddress() utils.Address
 	GetOwnerAddress() utils.Address
@@ -68,7 +104,7 @@ type RoleMgr interface {
 	// 创建组，by admin
 	CreateGroup(caller utils.Address, inds []uint64, level uint16, asign []byte) error
 	// 设置组的fs contract地址
-	SetFsAddrForGroup(caller utils.Address, gIndex uint64, fAddr utils.Address, asign []byte) error
+	SetFsAddrForGroup(caller utils.Address, fAddr utils.Address, asign []byte) error
 	// 向组中添加keeper，by keeper and admin
 	AddKeeperToGroup(caller utils.Address, index, gIndex uint64, ksign, asign []byte) error
 	// 向组中添加provider
@@ -105,6 +141,7 @@ type FsMgr interface {
 
 	KeeperWithdraw(caller utils.Address, keeperIndex uint64, tokenIndex uint32, amount *big.Int, sign []byte) error
 
+	GetInfo(caller utils.Address) uint64
 	GetFsInfo(caller utils.Address, user uint64) (uint32, []uint64, error)
 
 	info

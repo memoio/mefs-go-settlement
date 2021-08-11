@@ -17,13 +17,11 @@ func TestAddress(t *testing.T) {
 	t.Log(addr.String())
 
 	var a Address
-	var b Address
-
-	if a != b {
+	if a != NilAddress {
 		t.Fatal("not equal")
 	}
 
-	if a == addr {
+	if addr == NilAddress {
 		t.Fatal("equal")
 	}
 

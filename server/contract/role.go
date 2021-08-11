@@ -418,16 +418,26 @@ func (r *roleMgr) CreateGroup(caller utils.Address, inds []uint64, level uint16,
 	return nil
 }
 
-func (r *roleMgr) SetFsAddrForGroup(caller utils.Address, gIndex uint64, fAddr utils.Address, asign []byte) error {
-	if len(r.groups) <= int(gIndex) {
+func (r *roleMgr) SetFsAddrForGroup(caller utils.Address, fAddr utils.Address, asign []byte) error {
+	fm, err := getFsMgr(fAddr)
+	if err != nil {
+		return err
+	}
+
+	gIndex := fm.GetInfo(r.local)
+
+	if gIndex >= uint64(len(r.groups)) {
 		return ErrRes
 	}
 
-	// verify fs.gindex
-
+	gi := r.groups[gIndex]
 	//verify r.groups[gIndex].fsAddr is not set
+	if gi.fsAddr != utils.NilAddress {
+		return ErrRes
+	}
 
-	r.groups[gIndex].fsAddr = fAddr
+	// need verify faddr.gindex?
+	gi.fsAddr = fAddr
 
 	return nil
 }
@@ -567,7 +577,7 @@ func getAddressByIndex(rAddr, caller utils.Address, index uint64) (utils.Address
 		}
 	}
 
-	return utils.Address{}, ErrRes
+	return utils.NilAddress, ErrRes
 }
 
 func getTokenByIndex(rAddr, caller utils.Address, index uint32) (utils.Address, error) {
@@ -579,35 +589,5 @@ func getTokenByIndex(rAddr, caller utils.Address, index uint32) (utils.Address, 
 		}
 	}
 
-	return utils.Address{}, ErrRes
-}
-
-func getBalanceByIndex(rAddr utils.Address, query uint64) *big.Int {
-	res := big.NewInt(0)
-
-	return res
-}
-
-func getTokenBalanceByIndex(rAddr, caller utils.Address, tokenIndex uint32, query uint64) *big.Int {
-	res := big.NewInt(0)
-
-	ri, ok := globalMap[rAddr]
-	if ok {
-		r, ok := ri.(RoleMgr)
-		if ok {
-			_, err := r.GetTokenByIndex(caller, tokenIndex)
-			if err != nil {
-				return res
-			}
-
-			pi, _, err := r.GetInfoByIndex(caller, query)
-			if err != nil {
-				return res
-			}
-
-			res.Set(pi.rewards[tokenIndex-1])
-		}
-	}
-
-	return res
+	return utils.NilAddress, ErrRes
 }

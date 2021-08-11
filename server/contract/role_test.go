@@ -75,84 +75,86 @@ func TestRole(t *testing.T) {
 
 	rm := NewRoleMgr(adminAddr, et.GetContractAddress(), big.NewInt(123450), big.NewInt(12345))
 
-	userkey, err := utils.GenerateKey(rand.Reader)
+	prokey, err := utils.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	userAddr := utils.ToAddress(userkey.PubKey)
-	err = sendBalance(et.GetContractAddress(), adminAddr, userAddr, big.NewInt(12345))
+	proAddr := utils.ToAddress(prokey.PubKey)
+	err = sendBalance(et.GetContractAddress(), adminAddr, proAddr, big.NewInt(12345))
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	err = rm.Register(userAddr, userAddr, nil)
+	err = rm.Register(proAddr, proAddr, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	rInfo, err := rm.GetInfo(userAddr, userAddr)
+	rInfo, err := rm.GetInfo(proAddr, proAddr)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Log("info:", rInfo)
 
-	approve(et.GetContractAddress(), userAddr, rm.GetContractAddress(), big.NewInt(12345))
+	approve(et.GetContractAddress(), proAddr, rm.GetContractAddress(), big.NewInt(12345))
 
-	err = rm.Pledge(userAddr, 0, big.NewInt(12345), nil)
+	err = rm.Pledge(proAddr, 0, big.NewInt(12345), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = rm.RegisterKeeper(userAddr, 0, nil, nil)
+	err = rm.RegisterKeeper(proAddr, 0, nil, nil)
 	if err == nil {
 		t.Fatal("should fail")
 	}
 
-	err = rm.RegisterProvider(userAddr, 0, nil)
+	err = rm.RegisterProvider(proAddr, 0, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	rInfo2, err := rm.GetInfo(userAddr, userAddr)
+	rInfo2, err := rm.GetInfo(proAddr, proAddr)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Log("info2:", rInfo2)
 
+	t.Log("========= create group ============")
+
 	for i := 0; i < 4; i++ {
-		userkey, err := utils.GenerateKey(rand.Reader)
+		kkey, err := utils.GenerateKey(rand.Reader)
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		userAddr := utils.ToAddress(userkey.PubKey)
-		err = sendBalance(et.GetContractAddress(), adminAddr, userAddr, big.NewInt(123450))
+		kAddr := utils.ToAddress(kkey.PubKey)
+		err = sendBalance(et.GetContractAddress(), adminAddr, kAddr, big.NewInt(123450))
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		err = rm.Register(userAddr, userAddr, nil)
+		err = rm.Register(kAddr, kAddr, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		approve(et.GetContractAddress(), userAddr, rm.GetContractAddress(), big.NewInt(123450))
+		approve(et.GetContractAddress(), kAddr, rm.GetContractAddress(), big.NewInt(123450))
 
-		rInfo, err := rm.GetInfo(userAddr, userAddr)
+		rInfo, err := rm.GetInfo(kAddr, kAddr)
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		err = rm.Pledge(userAddr, rInfo.index, big.NewInt(123450), nil)
+		err = rm.Pledge(kAddr, rInfo.index, big.NewInt(123450), nil)
 		if err != nil {
 			t.Fatal(err)
 		}
-		err = rm.RegisterKeeper(userAddr, rInfo.index, nil, nil)
+		err = rm.RegisterKeeper(kAddr, rInfo.index, nil, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		rInfo, err = rm.GetInfo(userAddr, userAddr)
+		rInfo, err = rm.GetInfo(kAddr, kAddr)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -179,9 +181,9 @@ func TestRole(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Log("ginfo:", gi)
+	t.Log("ginfo2:", gi)
 
-	err = rm.AddProviderToGroup(userAddr, 0, 0, nil)
+	err = rm.AddProviderToGroup(proAddr, 0, 0, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -197,6 +199,35 @@ func TestRole(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Log(ps)
+
+	t.Log("========= create fs ============")
+
+	fs, err := NewFsMgr(adminAddr, rm.GetContractAddress(), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = rm.SetFsAddrForGroup(adminAddr, fs.GetContractAddress(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = rm.SetFsAddrForGroup(adminAddr, fs.GetContractAddress(), nil)
+	if err == nil {
+		t.Fatal("should fail")
+	}
+
+	gi, err = rm.GetGroupInfoByIndex(adminAddr, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if gi.fsAddr != fs.GetContractAddress() {
+		t.Fatal("set fs addr fails")
+	}
+	t.Log("ginfo3:", gi.fsAddr)
+
+	t.Log(fs.GetContractAddress())
 
 	t.Fatal("end")
 }
