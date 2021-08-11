@@ -56,7 +56,8 @@ type RoleMgr interface {
 	Pledge(index uint64, money *big.Int, signature []byte) error
 	RegisterKeeper(index uint64, blsKey, signature []byte) error
 	RegisterProvider(index uint64, signature []byte) error
-	RegisterUser(index uint64, blsKey, signature []byte) error
+	// called by contract
+	RegisterUser(caller utils.Address, index, gIndex uint64, blsKey []byte) error
 
 	// zero means all
 	WithdrawToken(index uint64, tokenIndex uint32, money *big.Int) error
@@ -88,18 +89,17 @@ type RoleMgr interface {
 // FsMgr manage, create by admin
 type FsMgr interface {
 	// by user
-	CreateFs(user uint64, payToken uint32, asign []byte) error
+	CreateFs(user uint64, payToken uint32, blsKey, sign []byte) error
 	// by user
 	Recharge(user uint64, tokenIndex uint32, money *big.Int, sign []byte) error
 
 	// by user sign and keepers sign
 	AddOrder(user, proIndex, start, end, size, nonce uint64, tokenIndex uint32, sprice *big.Int, sign []byte) error
 	SubOrder(user, proIndex, start, end, size, nonce uint64, tokenIndex uint32, sprice *big.Int, sign []byte) error
-	ProWithdraw(user, proIndex uint64, tokenIndex uint32, pay, lost *big.Int, sign []byte) error
+	ProWithdraw(proIndex uint64, tokenIndex uint32, pay, lost *big.Int, sign []byte) error
 
 	KeeperWithdraw(keeperIndex uint64, tokenIndex uint32, amount *big.Int, sign []byte) error
 
-	GetFsIndex(user uint64) (uint64, error)
 	GetFsInfo(user uint64) (uint32, []uint64, error)
 
 	info

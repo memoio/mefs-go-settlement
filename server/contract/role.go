@@ -325,8 +325,15 @@ func (r *roleMgr) RegisterProvider(index uint64, signature []byte) error {
 	return nil
 }
 
-func (r *roleMgr) RegisterUser(index uint64, blsKey, signature []byte) error {
-	// verify sign(hash(blsKey))
+func (r *roleMgr) RegisterUser(caller utils.Address, index, gIndex uint64, blsKey []byte) error {
+	// verify sender is contract
+	if gIndex > uint64(len(r.groups)) {
+		return ErrRes
+	}
+	if r.groups[gIndex].fsAddr != caller {
+		return ErrRes
+	}
+
 	bi, err := r.GetInfoByIndex(index)
 	if err != nil {
 		return err
@@ -338,6 +345,7 @@ func (r *roleMgr) RegisterUser(index uint64, blsKey, signature []byte) error {
 	}
 
 	bi.roleType = RoleUser
+	bi.gIndex = gIndex
 	bi.extra = blsKey
 
 	return nil

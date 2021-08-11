@@ -68,17 +68,16 @@ type ChannelInfo struct {
 	expire uint64   // 用于channel到期，user取回
 }
 
-// AggregatedOrder is user->provider order and channel
-type AggregatedOrder struct {
-	nonce    uint64                // 防止order重复提交
-	subNonce uint64                // 用于订单到期
-	sInfo    map[uint32]*StoreInfo // 不同代币的支付信息
-
-	channel map[uint32]*ChannelInfo // tokenaddr->channel
+// AggOrder is AggregatedOrder is user->provider order and channel
+type AggOrder struct {
+	nonce    uint64                  // 防止order重复提交
+	subNonce uint64                  // 用于订单到期
+	sInfo    map[uint32]*StoreInfo   // 不同代币的支付信息
+	channel  map[uint32]*ChannelInfo // tokenaddr->channel
 }
 
-func newAggregatedOrder() *AggregatedOrder {
-	return &AggregatedOrder{
+func newAggOrder() *AggOrder {
+	return &AggOrder{
 		nonce:    0,
 		subNonce: 0,
 		sInfo:    make(map[uint32]*StoreInfo),
@@ -88,12 +87,10 @@ func newAggregatedOrder() *AggregatedOrder {
 
 // FSInfo each user have at most one per group
 type FSInfo struct {
-	tokenIndex uint32              // 当前使用哪种token计费?记录
-	user       uint64              // 哪个user
-	amount     map[uint32]*big.Int // available money in token
-
-	providers []uint64                    // provider地址的数组
-	ao        map[uint64]*AggregatedOrder // 该User对每个Provider的订单信息
+	isActive   bool
+	tokenIndex uint32               // 当前使用哪种token计费?记录
+	providers  []uint64             // provider地址的数组
+	ao         map[uint64]*AggOrder // 该User对每个Provider的订单信息
 }
 
 // Settlement is
@@ -192,6 +189,7 @@ func (s *Settlement) calc(pay, lost *big.Int) (*big.Int, error) {
 	if lost.Cmp(s.lost) < 0 {
 		return res, ErrRes
 	}
+	s.lost.Set(lost)
 
 	ntime := uint64(time.Now().Unix())
 	if s.time < ntime {
@@ -207,108 +205,19 @@ func (s *Settlement) calc(pay, lost *big.Int) (*big.Int, error) {
 		return res, ErrRes
 	}
 
-	return res.Sub(pay, s.hasPaid), nil
-}
-
-type nodeKey struct {
-	id  uint64 // node
-	tid uint32 // token
-}
-
-// pay info per token
-type tokenPay struct {
-	index int
-	acc   *big.Int
-}
-
-type kAmount struct {
-	acc    *big.Int
-	amount *big.Int
-}
-
-type kSettle struct {
-	keepers []uint64
-	pay     map[nodeKey]*kAmount
-	tokens  []uint32
-	tAcc    map[uint32]*big.Int
-}
-
-func (k *kSettle) add(tokenIndex uint32, amount *big.Int) error {
-	ti, ok := k.tAcc[tokenIndex]
-	if !ok {
-		// verify tokenIndex first
-		ti = big.NewInt(0)
-		k.tAcc[tokenIndex] = ti
-		k.tokens = append(k.tokens, tokenIndex)
-
-		for _, keeper := range k.keepers {
-			nk := nodeKey{
-				tid: tokenIndex,
-				id:  keeper,
-			}
-			ki, ok := k.pay[nk]
-			if !ok {
-				ki = &kAmount{
-					acc:    big.NewInt(0),
-					amount: big.NewInt(0),
-				}
-				k.pay[nk] = ki
-			}
-		}
+	if s.hasPaid.Cmp(pay) > 0 {
+		return res, ErrRes
 	}
 
-	tv := new(big.Int).Set(amount)
-	tv.Div(tv, new(big.Int).SetInt64(int64(len(k.keepers))))
-	ti.Add(ti, tv)
+	res.Sub(pay, s.hasPaid)
+	s.hasPaid.Set(pay)
 
-	return nil
+	return res, nil
 }
 
-func (k *kSettle) addKeeper(keeper uint64) error {
-	for _, tindex := range k.tokens {
-		ti, ok := k.tAcc[tindex]
-		if !ok {
-			return ErrRes
-		}
-
-		nk := nodeKey{
-			tid: tindex,
-			id:  keeper,
-		}
-
-		ki := &kAmount{
-			acc:    new(big.Int).Set(ti),
-			amount: big.NewInt(0),
-		}
-
-		k.pay[nk] = ki
-	}
-
-	return nil
-}
-
-func (k *kSettle) withdraw(keeper uint64, tokenIndex uint32) error {
-	nk := nodeKey{
-		tid: tokenIndex,
-		id:  keeper,
-	}
-
-	ki, ok := k.pay[nk]
-	if !ok {
-		return ErrRes
-	}
-
-	ti, ok := k.tAcc[tokenIndex]
-	if !ok {
-		return ErrRes
-	}
-
-	tmp := new(big.Int).Sub(ti, ki.acc)
-
-	ki.amount.Add(ki.amount, tmp)
-	ki.acc.Set(ti)
-
-	return nil
+type multiKey struct {
+	roleIndex  uint64
+	tokenIndex uint32
 }
 
 var _ FsMgr = (*fsMgr)(nil)
@@ -318,16 +227,25 @@ type fsMgr struct {
 	admin    utils.Address // owner
 	roleAddr utils.Address // address of roleMgr
 
-	taxRate int // %5 for group, 4% linear and 1% at end;
+	taxRate int    // %5 for group, 4% linear and 1% at end;
+	gIndex  uint64 // belongs to which group?
 
-	gIndex uint64 // belongs to which group?
+	balance map[multiKey]*big.Int // available
 
-	users   map[uint64]uint64 // user -> fs
-	fsInfo  []*FSInfo
-	kInfo   *kSettle
-	proInfo map[nodeKey]*Settlement
+	users  []uint64
+	fsInfo map[uint64]*FSInfo
+
+	keepers []uint64
+	acc     map[multiKey]*big.Int
+	tAcc    map[uint32]*big.Int
+
+	providers []uint64
+	proInfo   map[multiKey]*Settlement
+
+	tokens []uint32 // user使用某token时候加进来
 }
 
+// NewFsMgr creates an instance
 func NewFsMgr(caller, rAddr utils.Address, gIndex uint64) (*fsMgr, error) {
 	rm, err := getRoleMgrByAddress(rAddr)
 	if err != nil {
@@ -339,13 +257,6 @@ func NewFsMgr(caller, rAddr utils.Address, gIndex uint64) (*fsMgr, error) {
 		return nil, err
 	}
 
-	ks := &kSettle{
-		keepers: keepers,
-		pay:     make(map[nodeKey]*kAmount),
-		tokens:  make([]uint32, 0, 1),
-		tAcc:    make(map[uint32]*big.Int),
-	}
-
 	local := utils.GetContractAddress(caller, []byte("FsMgr"))
 	fm := &fsMgr{
 		local:    local,
@@ -353,10 +264,19 @@ func NewFsMgr(caller, rAddr utils.Address, gIndex uint64) (*fsMgr, error) {
 		roleAddr: rAddr,
 		gIndex:   gIndex,
 		taxRate:  5, // 5% for keeper
-		users:    make(map[uint64]uint64),
-		fsInfo:   make([]*FSInfo, 0, 1),
-		proInfo:  make(map[nodeKey]*Settlement),
-		kInfo:    ks,
+		balance:  make(map[multiKey]*big.Int),
+
+		users:  make([]uint64, 0, 1),
+		fsInfo: make(map[uint64]*FSInfo),
+
+		keepers: keepers,
+		acc:     make(map[multiKey]*big.Int),
+		tAcc:    make(map[uint32]*big.Int),
+
+		providers: make([]uint64, 0, 1),
+		proInfo:   make(map[multiKey]*Settlement),
+
+		tokens: make([]uint32, 0, 1),
 	}
 
 	globalMap[local] = fm
@@ -372,58 +292,84 @@ func (f *fsMgr) GetOwnerAddress() utils.Address {
 	return f.admin
 }
 
-func (f *fsMgr) GetFsIndex(user uint64) (uint64, error) {
-	fs, ok := f.users[user]
-	if ok {
-		return fs, nil
-	}
-
-	return 0, ErrRes
-}
-
 func (f *fsMgr) GetFsInfo(user uint64) (uint32, []uint64, error) {
-	fsIndex, err := f.GetFsIndex(user)
-	if err != nil {
+	fi, ok := f.fsInfo[user]
+	if !ok {
 		return 0, nil, ErrRes
 	}
 
-	fi := f.fsInfo[fsIndex]
 	return fi.tokenIndex, fi.providers, nil
 }
 
-func (f *fsMgr) CreateFs(user uint64, payToken uint32, sign []byte) error {
+func (f *fsMgr) CreateFs(user uint64, payToken uint32, blsKey, sign []byte) error {
 	// valid addr is user
 	// valid paytoken is valid
 
-	// valid is not exist
-	_, ok := f.users[user]
+	// valid fs is not exist
+	fi, ok := f.fsInfo[user]
 	if ok {
-		return ErrRes
+		if fi.isActive {
+			return ErrRes
+		}
+	} else {
+		// add fs
+		fi = &FSInfo{
+			tokenIndex: payToken,
+			providers:  make([]uint64, 0, 1),
+			ao:         make(map[uint64]*AggOrder),
+		}
+
+		f.fsInfo[user] = fi
+		f.users = append(f.users, user)
 	}
 
-	// valid
-	fi := &FSInfo{
-		tokenIndex: payToken,
-		user:       user,
-		amount:     make(map[uint32]*big.Int),
-		ao:         make(map[uint64]*AggregatedOrder),
+	rm, err := getRoleMgrByAddress(f.roleAddr)
+	if err != nil {
+		return err
 	}
 
-	fsIndex := len(f.fsInfo)
-	f.users[user] = uint64(fsIndex)
+	// valid payToken
+	_, ok = f.tAcc[payToken]
+	if !ok {
+		_, err = rm.GetTokenByIndex(payToken)
+		if err != nil {
+			return err
+		}
 
-	f.fsInfo = append(f.fsInfo, fi)
+		f.tAcc[payToken] = big.NewInt(0)
+		f.tokens = append(f.tokens, payToken)
+	}
+
+	// notify rm
+	err = rm.RegisterUser(f.local, user, f.gIndex, blsKey)
+	if err != nil {
+		return err
+	}
+
+	fi.isActive = true
 
 	return nil
 }
 
+func (f *fsMgr) getFsInfo(user uint64) (*FSInfo, error) {
+	fi, ok := f.fsInfo[user]
+	if !ok {
+		return nil, ErrRes
+	}
+
+	if !fi.isActive {
+		return nil, ErrRes
+	}
+
+	return fi, nil
+}
+
 // 充值
 func (f *fsMgr) Recharge(user uint64, tokenIndex uint32, money *big.Int, sign []byte) error {
-	fsIndex, err := f.GetFsIndex(user)
+	_, err := f.getFsInfo(user)
 	if err != nil {
 		return ErrRes
 	}
-	fi := f.fsInfo[fsIndex]
 
 	rm, err := getRoleMgrByAddress(f.roleAddr)
 	if err != nil {
@@ -435,24 +381,46 @@ func (f *fsMgr) Recharge(user uint64, tokenIndex uint32, money *big.Int, sign []
 		return err
 	}
 
-	uAddr, err := rm.GetAddressByIndex(fi.user)
+	// add tokenIndex
+	_, ok := f.tAcc[tokenIndex]
+	if !ok {
+		f.tAcc[tokenIndex] = big.NewInt(0)
+		f.tokens = append(f.tokens, tokenIndex)
+
+		// need do here?
+		for _, keeper := range f.keepers {
+			nk := multiKey{
+				tokenIndex: tokenIndex,
+				roleIndex:  keeper,
+			}
+			ki, ok := f.acc[nk]
+			if !ok {
+				ki = big.NewInt(0)
+				f.acc[nk] = ki
+			}
+		}
+	}
+
+	uAddr, err := rm.GetAddressByIndex(user)
 	if err != nil {
 		return err
 	}
 
-	sendM := big.NewInt(0)
-	sendM.Add(sendM, money)
-
-	err = sendBalance(tAddr, uAddr, f.local, sendM)
+	err = sendBalance(tAddr, uAddr, f.local, new(big.Int).Set(money))
 	if err != nil {
 		return err
 	}
 
-	bal, ok := fi.amount[tokenIndex]
+	mk := multiKey{
+		roleIndex:  user,
+		tokenIndex: tokenIndex,
+	}
+
+	bal, ok := f.balance[mk]
 	if ok {
 		bal.Add(bal, money)
 	} else {
-		fi.amount[tokenIndex] = money
+		f.balance[mk] = money
 	}
 
 	return nil
@@ -464,7 +432,7 @@ func (f *fsMgr) AddOrder(user, proIndex, start, end, size, nonce uint64, tokenIn
 		return ErrRes
 	}
 
-	fsIndex, err := f.GetFsIndex(user)
+	fi, err := f.getFsInfo(user)
 	if err != nil {
 		return ErrRes
 	}
@@ -475,9 +443,7 @@ func (f *fsMgr) AddOrder(user, proIndex, start, end, size, nonce uint64, tokenIn
 		return err
 	}
 
-	fi := f.fsInfo[fsIndex]
-
-	_, err = rm.GetAddressByIndex(fi.user)
+	_, err = rm.GetAddressByIndex(user)
 	if err != nil {
 		return err
 	}
@@ -485,11 +451,15 @@ func (f *fsMgr) AddOrder(user, proIndex, start, end, size, nonce uint64, tokenIn
 	// verify sign
 
 	// verify money is enough
-	bal, ok := fi.amount[tokenIndex]
+	uKey := multiKey{
+		roleIndex:  user,
+		tokenIndex: tokenIndex,
+	}
+
+	bal, ok := f.balance[uKey]
 	if !ok {
 		return ErrRes
 	}
-
 	pay := new(big.Int).SetUint64(end - start)
 	pay.Mul(pay, sprice)
 
@@ -516,7 +486,7 @@ func (f *fsMgr) AddOrder(user, proIndex, start, end, size, nonce uint64, tokenIn
 
 		fi.providers = append(fi.providers, proIndex)
 
-		pi = newAggregatedOrder()
+		pi = newAggOrder()
 		fi.ao[proIndex] = pi
 
 		ch := &ChannelInfo{
@@ -542,20 +512,20 @@ func (f *fsMgr) AddOrder(user, proIndex, start, end, size, nonce uint64, tokenIn
 		return ErrRes
 	}
 
-	nKey := nodeKey{
-		id:  proIndex,
-		tid: tokenIndex,
+	pKey := multiKey{
+		roleIndex:  proIndex,
+		tokenIndex: tokenIndex,
 	}
 
-	se, ok := f.proInfo[nKey]
+	se, ok := f.proInfo[pKey]
 	if !ok {
 		se := newSettlement()
-		f.proInfo[nKey] = se
+		f.proInfo[pKey] = se
 	}
 
 	se.add(start, size, sprice, pay, tax)
 
-	fi.amount[tokenIndex].Sub(fi.amount[tokenIndex], payAndTax)
+	f.balance[uKey].Sub(f.balance[uKey], payAndTax)
 	pi.nonce++
 	return nil
 }
@@ -566,7 +536,7 @@ func (f *fsMgr) SubOrder(user, proIndex, start, end, size, nonce uint64, tokenIn
 		return ErrRes
 	}
 
-	fsIndex, err := f.GetFsIndex(user)
+	fi, err := f.getFsInfo(user)
 	if err != nil {
 		return ErrRes
 	}
@@ -577,9 +547,8 @@ func (f *fsMgr) SubOrder(user, proIndex, start, end, size, nonce uint64, tokenIn
 		return err
 	}
 
-	fi := f.fsInfo[fsIndex]
-
-	_, err = rm.GetAddressByIndex(fi.user)
+	// for verify sign
+	_, err = rm.GetAddressByIndex(user)
 	if err != nil {
 		return err
 	}
@@ -603,12 +572,12 @@ func (f *fsMgr) SubOrder(user, proIndex, start, end, size, nonce uint64, tokenIn
 		return err
 	}
 
-	nKey := nodeKey{
-		id:  proIndex,
-		tid: tokenIndex,
+	pKey := multiKey{
+		roleIndex:  proIndex,
+		tokenIndex: tokenIndex,
 	}
 
-	se, ok := f.proInfo[nKey]
+	se, ok := f.proInfo[pKey]
 	if !ok {
 		return ErrRes
 	}
@@ -623,44 +592,47 @@ func (f *fsMgr) SubOrder(user, proIndex, start, end, size, nonce uint64, tokenIn
 	endPaid.Mul(endPaid, sprice)
 	endPaid.Div(endPaid, new(big.Int).SetUint64(100))
 
-	f.kInfo.add(tokenIndex, endPaid)
+	f.addToGroup(tokenIndex, endPaid)
 
 	se.endPaid.Add(se.endPaid, endPaid)
+	pi.subNonce++
 
 	return nil
 }
 
-func (f *fsMgr) ProWithdraw(user, proIndex uint64, tokenIndex uint32, pay, lost *big.Int, sign []byte) error {
-	fsIndex, err := f.GetFsIndex(user)
-	if err != nil {
-		return ErrRes
+func (f *fsMgr) ProWithdraw(proIndex uint64, tokenIndex uint32, pay, lost *big.Int, sign []byte) error {
+	pKey := multiKey{
+		roleIndex:  proIndex,
+		tokenIndex: tokenIndex,
 	}
 
-	// get instance by address
-	rm, err := getRoleMgrByAddress(f.roleAddr)
-	if err != nil {
-		return err
-	}
-
-	fi := f.fsInfo[fsIndex]
-
-	_, err = rm.GetAddressByIndex(fi.user)
-	if err != nil {
-		return err
-	}
-
-	nKey := nodeKey{
-		id:  proIndex,
-		tid: tokenIndex,
-	}
-
-	se, ok := f.proInfo[nKey]
+	se, ok := f.proInfo[pKey]
 	if !ok {
 		return ErrRes
 	}
 
 	// pay to provider
 	thisPay, err := se.calc(pay, lost)
+	if err != nil {
+		return err
+	}
+
+	pb, ok := f.balance[pKey]
+	if ok {
+		thisPay.Add(thisPay, pb)
+	}
+
+	// linear pay to keepers
+	lpay := new(big.Int).Mul(se.hasPaid, big.NewInt(4))
+	lpay.Div(lpay, big.NewInt(4))
+	if lpay.Cmp(se.linearPaid) > 0 {
+		lpay.Sub(lpay, se.linearPaid)
+		f.addToGroup(tokenIndex, lpay)
+		se.linearPaid.Add(se.linearPaid, lpay)
+	}
+
+	// get instance by address
+	rm, err := getRoleMgrByAddress(f.roleAddr)
 	if err != nil {
 		return err
 	}
@@ -680,43 +652,37 @@ func (f *fsMgr) ProWithdraw(user, proIndex uint64, tokenIndex uint32, pay, lost 
 		return err
 	}
 
-	se.lost = lost
-	se.hasPaid = pay
-
-	// linear pay to keepers
-	lpay := new(big.Int).Mul(se.hasPaid, big.NewInt(4))
-	lpay.Div(lpay, big.NewInt(4))
-	if lpay.Cmp(se.linearPaid) > 0 {
-		lpay.Sub(lpay, se.linearPaid)
-		f.kInfo.add(tokenIndex, lpay)
-		se.linearPaid.Add(se.linearPaid, lpay)
-	}
-
 	return nil
 }
 
 func (f *fsMgr) KeeperWithdraw(keeper uint64, tokenIndex uint32, amount *big.Int, sign []byte) error {
-	err := f.kInfo.withdraw(keeper, tokenIndex)
-	if err != nil {
-		return err
+	nk := multiKey{
+		tokenIndex: tokenIndex,
+		roleIndex:  keeper,
 	}
 
-	nk := nodeKey{
-		tid: tokenIndex,
-		id:  keeper,
-	}
-
-	ki, ok := f.kInfo.pay[nk]
+	kacc, ok := f.acc[nk]
 	if !ok {
 		return ErrRes
 	}
 
-	if amount.Cmp(zero) == 0 {
-		amount.Set(ki.amount)
+	ti, ok := f.tAcc[tokenIndex]
+	if !ok {
+		return ErrRes
 	}
 
-	if amount.Cmp(ki.amount) > 0 {
-		amount.Set(ki.amount)
+	tmp := new(big.Int).Sub(ti, kacc)
+	kacc.Set(ti)
+
+	bal, ok := f.balance[nk]
+	if ok {
+		tmp.Add(tmp, bal)
+	}
+
+	bal.Set(tmp)
+
+	if amount.Cmp(zero) == 0 || amount.Cmp(tmp) > 0 {
+		amount.Set(tmp)
 	}
 
 	rm, err := getRoleMgrByAddress(f.roleAddr)
@@ -734,11 +700,41 @@ func (f *fsMgr) KeeperWithdraw(keeper uint64, tokenIndex uint32, amount *big.Int
 		return err
 	}
 
-	err = sendBalance(tAddr, f.local, kAddr, new(big.Int).Set(amount))
+	err = sendBalance(tAddr, f.local, kAddr, tmp)
 	if err != nil {
 		return err
 	}
+	bal.Sub(bal, tmp)
+	return nil
+}
 
-	ki.amount.Sub(ki.amount, amount)
+func (f *fsMgr) addToGroup(tokenIndex uint32, amount *big.Int) error {
+	ti, ok := f.tAcc[tokenIndex]
+	if !ok {
+		return ErrRes
+	}
+
+	tv := new(big.Int).Set(amount)
+	tv.Div(tv, new(big.Int).SetInt64(int64(len(f.keepers))))
+	ti.Add(ti, tv)
+
+	return nil
+}
+
+func (f *fsMgr) addKeeper(keeper uint64) error {
+	for _, tindex := range f.tokens {
+		_, ok := f.tAcc[tindex]
+		if !ok {
+			return ErrRes
+		}
+
+		nk := multiKey{
+			tokenIndex: tindex,
+			roleIndex:  keeper,
+		}
+
+		f.acc[nk] = new(big.Int)
+	}
+
 	return nil
 }
