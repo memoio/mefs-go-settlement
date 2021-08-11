@@ -10,12 +10,17 @@ var base = int64(1000000000)
 
 var _ ErcToken = (*ercToken)(nil)
 
+type twoKey struct {
+	owner   utils.Address
+	spender utils.Address
+}
+
 type ercToken struct {
 	local       utils.Address // contract utils.Address
 	admin       utils.Address // owner
 	totalSupply *big.Int
 	money       map[utils.Address]*big.Int
-	allowed     map[utils.Address]map[utils.Address]*big.Int
+	allowed     map[twoKey]*big.Int
 }
 
 // NewErcToken create
@@ -28,7 +33,7 @@ func NewErcToken(caller utils.Address) (ErcToken, error) {
 		admin:       caller,
 		local:       local,
 		money:       make(map[utils.Address]*big.Int),
-		allowed:     make(map[utils.Address]map[utils.Address]*big.Int),
+		allowed:     make(map[twoKey]*big.Int),
 		totalSupply: new(big.Int).Mul(big.NewInt(base), big.NewInt(base)),
 	}
 
@@ -38,11 +43,11 @@ func NewErcToken(caller utils.Address) (ErcToken, error) {
 	return et, nil
 }
 
-func (e *ercToken) TotalSupply() *big.Int {
+func (e *ercToken) TotalSupply(caller utils.Address) *big.Int {
 	return new(big.Int).Set(e.totalSupply)
 }
 
-func (e *ercToken) BalanceOf(from utils.Address) *big.Int {
+func (e *ercToken) BalanceOf(caller utils.Address, from utils.Address) *big.Int {
 	res := new(big.Int)
 	val, ok := e.money[from]
 	if ok {
@@ -52,9 +57,14 @@ func (e *ercToken) BalanceOf(from utils.Address) *big.Int {
 	return res
 }
 
-func (e *ercToken) Allowance(tokenOwner, spender utils.Address) *big.Int {
+func (e *ercToken) Allowance(caller, tokenOwner, spender utils.Address) *big.Int {
 	res := new(big.Int)
-	val, ok := e.allowed[tokenOwner][spender]
+	tKey := twoKey{
+		owner:   tokenOwner,
+		spender: spender,
+	}
+
+	val, ok := e.allowed[tKey]
 	if ok {
 		res.Add(res, val)
 	}
@@ -93,7 +103,13 @@ func (e *ercToken) Transfer(caller, to utils.Address, value *big.Int) error {
 
 // 用于合约账户将erc token转入合约账户中
 func (e *ercToken) Approve(caller, spender utils.Address, value *big.Int) {
-	e.allowed[caller][spender] = new(big.Int).Set(value)
+	if value.Cmp(zero) > 0 {
+		tKey := twoKey{
+			owner:   caller,
+			spender: spender,
+		}
+		e.allowed[tKey] = new(big.Int).Set(value)
+	}
 }
 
 func (e *ercToken) TransferFrom(caller, from, to utils.Address, value *big.Int) error {
@@ -113,7 +129,11 @@ func (e *ercToken) TransferFrom(caller, from, to utils.Address, value *big.Int) 
 	}
 
 	// verify money is allowed by caller
-	aval, ok := e.allowed[from][caller]
+	tKey := twoKey{
+		owner:   from,
+		spender: caller,
+	}
+	aval, ok := e.allowed[tKey]
 	if !ok {
 		return ErrRes
 	}
@@ -159,7 +179,7 @@ func getBalance(taddr, query utils.Address) *big.Int {
 	if !ok {
 		return big.NewInt(0)
 	}
-	return et.BalanceOf(query)
+	return et.BalanceOf(query, query)
 }
 
 // taddr对应的erc20上从from到to
@@ -174,4 +194,32 @@ func sendBalance(taddr, caller, to utils.Address, money *big.Int) error {
 		return ErrRes
 	}
 	return et.Transfer(caller, to, money)
+}
+
+func sendBalanceFrom(taddr, caller, from, to utils.Address, money *big.Int) error {
+	eti, ok := globalMap[taddr]
+	if !ok {
+		return ErrRes
+	}
+
+	et, ok := eti.(ErcToken)
+	if !ok {
+		return ErrRes
+	}
+	return et.TransferFrom(caller, from, to, money)
+}
+
+func approve(taddr, caller, spender utils.Address, money *big.Int) error {
+	eti, ok := globalMap[taddr]
+	if !ok {
+		return ErrRes
+	}
+
+	et, ok := eti.(ErcToken)
+	if !ok {
+		return ErrRes
+	}
+	et.Approve(caller, spender, money)
+
+	return nil
 }

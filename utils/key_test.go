@@ -2,9 +2,9 @@ package utils
 
 import (
 	"crypto/rand"
-	"encoding/hex"
-	"github.com/minio/blake2b-simd"
 	"testing"
+
+	"github.com/minio/blake2b-simd"
 )
 
 func TestAddress(t *testing.T) {
@@ -14,8 +14,20 @@ func TestAddress(t *testing.T) {
 	}
 
 	addr := ToAddress(key.PubKey[1:])
-	t.Log(hex.EncodeToString(addr[:]))
-	t.Fatal(addr.String())
+	t.Log(addr.String())
+
+	var a Address
+	var b Address
+
+	if a != b {
+		t.Fatal("not equal")
+	}
+
+	if a == addr {
+		t.Fatal("equal")
+	}
+
+	t.Fatal("end")
 }
 
 func TestSign(t *testing.T) {
@@ -33,10 +45,10 @@ func TestSign(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ok := Verify(key.PubKey, msg[:], sig)
+	ok := Verify(addr, msg[:], sig)
 	if !ok {
 		t.Fatal("verify fail")
 	}
 
-	t.Fatal(addr.String())
+	t.Fatal("end")
 }

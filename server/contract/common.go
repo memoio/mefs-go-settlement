@@ -30,9 +30,9 @@ type info interface {
 // 参考：https://zhuanlan.zhihu.com/p/391837660
 type ErcToken interface {
 	// 查询
-	TotalSupply() *big.Int
-	BalanceOf(tokenOwner utils.Address) *big.Int
-	Allowance(tokenOwner, spender utils.Address) *big.Int
+	TotalSupply(caller utils.Address) *big.Int
+	BalanceOf(caller, tokenOwner utils.Address) *big.Int
+	Allowance(caller, tokenOwner, spender utils.Address) *big.Int
 
 	// 处理， caller is from msg.Sender in real contract
 	Approve(caller, spender utils.Address, value *big.Int)
@@ -46,38 +46,43 @@ type ErcToken interface {
 // RoleMgr can be admin by multiple signatures, non-destroy
 // now, single sign
 type RoleMgr interface {
-	// by admin
-	RegisterToken(taddr utils.Address, asign []byte) error
-	Register(addr utils.Address, sign []byte) error
+	// by admin, 注册erc20代币地址
+	RegisterToken(caller, taddr utils.Address, asign []byte) error
+	// 注册地址，获取序号
+	Register(caller, addr utils.Address, sign []byte) error
+	// 获取addr地址的相关信息
+	GetInfo(caller, addr utils.Address) (*baseInfo, error)
 
-	GetInfo(addr utils.Address) (*baseInfo, error)
-
-	// 质押, 元交易
-	Pledge(index uint64, money *big.Int, signature []byte) error
-	RegisterKeeper(index uint64, blsKey, signature []byte) error
-	RegisterProvider(index uint64, signature []byte) error
-	// called by contract
+	// 质押,
+	Pledge(caller utils.Address, index uint64, money *big.Int, signature []byte) error
+	// 注册成为keeper角色
+	RegisterKeeper(caller utils.Address, index uint64, blsKey, signature []byte) error
+	// 注册成为prvider角色
+	RegisterProvider(caller utils.Address, index uint64, signature []byte) error
+	// 注册成为user角色，从fs contract调用
 	RegisterUser(caller utils.Address, index, gIndex uint64, blsKey []byte) error
 
-	// zero means all
-	WithdrawToken(index uint64, tokenIndex uint32, money *big.Int) error
-	Withdraw(index uint64, money *big.Int) error
+	// 取回token对应的代币, money zero means all
+	Withdraw(caller utils.Address, index uint64, tokenIndex uint32, money *big.Int) error
 
-	// by admin
-	CreateGroup(inds []uint64, level uint16, asign []byte) error
-	SetFsAddrForGroup(gIndex uint64, fAddr utils.Address, asign []byte) error
-	// by keeper and admin
-	AddKeeperToGroup(index, gIndex uint64, ksign, asign []byte) error
-	// by provider self; from == addrs[index]
-	AddProviderToGroup(index, gIndex uint64, psign []byte) error
+	// 创建组，by admin
+	CreateGroup(caller utils.Address, inds []uint64, level uint16, asign []byte) error
+	// 设置组的fs contract地址
+	SetFsAddrForGroup(caller utils.Address, gIndex uint64, fAddr utils.Address, asign []byte) error
+	// 向组中添加keeper，by keeper and admin
+	AddKeeperToGroup(caller utils.Address, index, gIndex uint64, ksign, asign []byte) error
+	// 向组中添加provider
+	AddProviderToGroup(caller utils.Address, index, gIndex uint64, psign []byte) error
 
-	GetTokenByIndex(index uint32) (utils.Address, error)
-	GetAddressByIndex(index uint64) (utils.Address, error)
-	GetGroupByIndex(index uint64) (uint64, error)
-	GetKeepersByIndex(gindex uint64) ([]uint64, error)
-	GetProvidersByIndex(gindex uint64) ([]uint64, error)
-	GetInfoByIndex(index uint64) (*baseInfo, error)
+	GetTokenByIndex(caller utils.Address, index uint32) (utils.Address, error)
+	GetAddressByIndex(caller utils.Address, index uint64) (utils.Address, error)
+	GetGroupByIndex(caller utils.Address, index uint64) (uint64, error)
+	GetKeepersByIndex(caller utils.Address, gindex uint64) ([]uint64, error)
+	GetProvidersByIndex(caller utils.Address, gindex uint64) ([]uint64, error)
+	GetInfoByIndex(caller utils.Address, index uint64) (*baseInfo, utils.Address, error)
+	GetGroupInfoByIndex(caller utils.Address, gindex uint64) (*GroupInfo, error)
 
+	info
 	// stop service? not allowed
 	//KeeperQuit()
 	// stop service? allowed ?
@@ -89,18 +94,18 @@ type RoleMgr interface {
 // FsMgr manage, create by admin
 type FsMgr interface {
 	// by user
-	CreateFs(user uint64, payToken uint32, blsKey, sign []byte) error
+	CreateFs(caller utils.Address, user uint64, payToken uint32, blsKey, sign []byte) error
 	// by user
-	Recharge(user uint64, tokenIndex uint32, money *big.Int, sign []byte) error
+	Recharge(caller utils.Address, user uint64, tokenIndex uint32, money *big.Int, sign []byte) error
 
 	// by user sign and keepers sign
-	AddOrder(user, proIndex, start, end, size, nonce uint64, tokenIndex uint32, sprice *big.Int, sign []byte) error
-	SubOrder(user, proIndex, start, end, size, nonce uint64, tokenIndex uint32, sprice *big.Int, sign []byte) error
-	ProWithdraw(proIndex uint64, tokenIndex uint32, pay, lost *big.Int, sign []byte) error
+	AddOrder(caller utils.Address, user, proIndex, start, end, size, nonce uint64, tokenIndex uint32, sprice *big.Int, sign []byte) error
+	SubOrder(caller utils.Address, user, proIndex, start, end, size, nonce uint64, tokenIndex uint32, sprice *big.Int, sign []byte) error
+	ProWithdraw(caller utils.Address, proIndex uint64, tokenIndex uint32, pay, lost *big.Int, sign []byte) error
 
-	KeeperWithdraw(keeperIndex uint64, tokenIndex uint32, amount *big.Int, sign []byte) error
+	KeeperWithdraw(caller utils.Address, keeperIndex uint64, tokenIndex uint32, amount *big.Int, sign []byte) error
 
-	GetFsInfo(user uint64) (uint32, []uint64, error)
+	GetFsInfo(caller utils.Address, user uint64) (uint32, []uint64, error)
 
 	info
 }

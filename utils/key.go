@@ -1,7 +1,6 @@
 package utils
 
 import (
-	"bytes"
 	"crypto/ecdsa"
 	"encoding/hex"
 	"io"
@@ -98,14 +97,7 @@ func GetContractAddress(addr Address, method []byte) Address {
 
 	b := h.Sum(nil)
 
-	br := bytes.NewReader(b[:])
-
-	adminkey, err := GenerateKey(br)
-	if err != nil {
-		return Address{}
-	}
-
-	return ToAddress(adminkey.PubKey)
+	return ToAddress(b[:])
 }
 
 // Sign signs the given message, which must be 32 bytes long.
@@ -113,12 +105,22 @@ func Sign(sk, msg []byte) ([]byte, error) {
 	return secp256k1.Sign(msg, sk)
 }
 
-// Verify checks the given signature and returns true if it is valid.
-func Verify(pk, msg, signature []byte) bool {
+// Verify2 checks the given signature and returns true if it is valid.
+func Verify2(pk, msg, signature []byte) bool {
 	if len(signature) > 64 {
 		signature = signature[:64]
 	}
 	return secp256k1.VerifySignature(pk[:], msg, signature)
+}
+
+func Verify(addr Address, msg, signature []byte) bool {
+	pk, err := secp256k1.RecoverPubkey(msg, signature)
+	if err != nil {
+		return false
+	}
+
+	nAddr := ToAddress(pk)
+	return addr == nAddr
 }
 
 // EcRecover recovers the public key from a message, signature pair.
