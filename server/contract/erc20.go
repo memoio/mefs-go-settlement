@@ -6,7 +6,7 @@ import (
 	"github.com/memoio/go-settlement/utils"
 )
 
-var base = int64(1000000000)
+var base = int64(1000000000000000000)
 
 var _ ErcToken = (*ercToken)(nil)
 

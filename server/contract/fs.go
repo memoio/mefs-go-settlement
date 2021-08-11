@@ -7,22 +7,22 @@ import (
 	"github.com/memoio/go-settlement/utils"
 )
 
-// StoreInfo is at some time
-type StoreInfo struct {
+// storeInfo is at some time
+type storeInfo struct {
 	time  uint64   // 什么时刻的状态，start time of each cycle
 	size  uint64   // 在该存储节点上的存储总量，byte
 	price *big.Int // 按周期计费，比如一周期为一个区块?
 }
 
-func newStoreInfo() *StoreInfo {
-	return &StoreInfo{
+func newStoreInfo() *storeInfo {
+	return &storeInfo{
 		time:  0,
 		size:  0,
 		price: big.NewInt(1),
 	}
 }
 
-func (si *StoreInfo) add(time, size uint64, sprice *big.Int) error {
+func (si *storeInfo) add(time, size uint64, sprice *big.Int) error {
 	if si.time < time {
 		return ErrRes
 	}
@@ -39,7 +39,7 @@ func (si *StoreInfo) add(time, size uint64, sprice *big.Int) error {
 	return nil
 }
 
-func (si *StoreInfo) sub(end, size uint64, sprice *big.Int) error {
+func (si *storeInfo) sub(end, size uint64, sprice *big.Int) error {
 	// time.N
 	if time.Now().Unix() < int64(end) {
 		return ErrRes
@@ -61,40 +61,40 @@ func (si *StoreInfo) sub(end, size uint64, sprice *big.Int) error {
 	return nil
 }
 
-// ChannelInfo for user pay read to provider
-type ChannelInfo struct {
+// channelInfo for user pay read to provider
+type channelInfo struct {
 	amount *big.Int // available amount
 	nonce  uint64   // 防止channel重复提交，pro提交后+1
 	expire uint64   // 用于channel到期，user取回
 }
 
-// AggOrder is AggregatedOrder is user->provider order and channel
-type AggOrder struct {
+// aggOrder is AggregatedOrder is user->provider order and channel
+type aggOrder struct {
 	nonce    uint64                  // 防止order重复提交
 	subNonce uint64                  // 用于订单到期
-	sInfo    map[uint32]*StoreInfo   // 不同代币的支付信息
-	channel  map[uint32]*ChannelInfo // tokenaddr->channel
+	sInfo    map[uint32]*storeInfo   // 不同代币的支付信息
+	channel  map[uint32]*channelInfo // tokenaddr->channel
 }
 
-func newAggOrder() *AggOrder {
-	return &AggOrder{
+func newAggOrder() *aggOrder {
+	return &aggOrder{
 		nonce:    0,
 		subNonce: 0,
-		sInfo:    make(map[uint32]*StoreInfo),
-		channel:  make(map[uint32]*ChannelInfo),
+		sInfo:    make(map[uint32]*storeInfo),
+		channel:  make(map[uint32]*channelInfo),
 	}
 }
 
-// FSInfo each user have at most one per group
-type FSInfo struct {
+// fsInfo each user have at most one per group
+type fsInfo struct {
 	isActive   bool
 	tokenIndex uint32               // 当前使用哪种token计费?记录
 	providers  []uint64             // provider地址的数组
-	ao         map[uint64]*AggOrder // 该User对每个Provider的订单信息
+	ao         map[uint64]*aggOrder // 该User对每个Provider的订单信息
 }
 
-// Settlement is
-type Settlement struct {
+// settlement is
+type settlement struct {
 	time  uint64   // store状态改变或pay时间, align to epoch
 	size  uint64   // 在该存储节点上的存储总量
 	price *big.Int // per b*second
@@ -109,8 +109,8 @@ type Settlement struct {
 	linearPaid *big.Int // release when pay for provider
 }
 
-func newSettlement() *Settlement {
-	return &Settlement{
+func newSettlement() *settlement {
+	return &settlement{
 		maxPay:  big.NewInt(0),
 		hasPaid: big.NewInt(0),
 		lost:    big.NewInt(0),
@@ -124,7 +124,7 @@ func newSettlement() *Settlement {
 }
 
 // Add is
-func (s *Settlement) add(time, size uint64, sprice, pay, tax *big.Int) {
+func (s *settlement) add(time, size uint64, sprice, pay, tax *big.Int) {
 	// update canPay
 	hp := new(big.Int)
 	if s.time < time {
@@ -153,7 +153,7 @@ func (s *Settlement) add(time, size uint64, sprice, pay, tax *big.Int) {
 }
 
 // Sub ends
-func (s *Settlement) sub(start, end, size uint64, sprice *big.Int) {
+func (s *settlement) sub(start, end, size uint64, sprice *big.Int) {
 	// update canPay
 	hp := new(big.Int)
 	if s.time < end {
@@ -179,7 +179,7 @@ func (s *Settlement) sub(start, end, size uint64, sprice *big.Int) {
 }
 
 // Calc ends called by withdraw
-func (s *Settlement) calc(pay, lost *big.Int) (*big.Int, error) {
+func (s *settlement) calc(pay, lost *big.Int) (*big.Int, error) {
 	res := new(big.Int)
 	// has paid
 	if s.hasPaid.Cmp(pay) > 0 {
@@ -232,8 +232,8 @@ type fsMgr struct {
 
 	balance map[multiKey]*big.Int // available
 
-	users  []uint64
-	fsInfo map[uint64]*FSInfo
+	users []uint64
+	fs    map[uint64]*fsInfo
 
 	keepers    []uint64
 	period     uint64
@@ -243,7 +243,7 @@ type fsMgr struct {
 	count      map[uint64]uint64 //   记录keeper触发的次数，用于分润
 
 	providers []uint64
-	proInfo   map[multiKey]*Settlement
+	proInfo   map[multiKey]*settlement
 
 	tokens []uint32 // user使用某token时候加进来
 }
@@ -269,8 +269,8 @@ func NewFsMgr(caller, rAddr utils.Address, gIndex uint64) (FsMgr, error) {
 		taxRate:  5, // 5% for keeper
 		balance:  make(map[multiKey]*big.Int),
 
-		users:  make([]uint64, 0, 1),
-		fsInfo: make(map[uint64]*FSInfo),
+		users: make([]uint64, 0, 1),
+		fs:    make(map[uint64]*fsInfo),
 
 		keepers:    keepers,
 		period:     60,
@@ -280,7 +280,7 @@ func NewFsMgr(caller, rAddr utils.Address, gIndex uint64) (FsMgr, error) {
 		count:      make(map[uint64]uint64),
 
 		providers: make([]uint64, 0, 1),
-		proInfo:   make(map[multiKey]*Settlement),
+		proInfo:   make(map[multiKey]*settlement),
 
 		tokens: make([]uint32, 0, 1),
 	}
@@ -308,7 +308,7 @@ func (f *fsMgr) GetInfo(caller utils.Address) uint64 {
 }
 
 func (f *fsMgr) GetFsInfo(caller utils.Address, user uint64) (uint32, []uint64, error) {
-	fi, ok := f.fsInfo[user]
+	fi, ok := f.fs[user]
 	if !ok {
 		return 0, nil, ErrRes
 	}
@@ -321,20 +321,20 @@ func (f *fsMgr) CreateFs(caller utils.Address, user uint64, payToken uint32, bls
 	// valid paytoken is valid
 
 	// valid fs is not exist
-	fi, ok := f.fsInfo[user]
+	fi, ok := f.fs[user]
 	if ok {
 		if fi.isActive {
 			return ErrRes
 		}
 	} else {
 		// add fs
-		fi = &FSInfo{
+		fi = &fsInfo{
 			tokenIndex: payToken,
 			providers:  make([]uint64, 0, 1),
-			ao:         make(map[uint64]*AggOrder),
+			ao:         make(map[uint64]*aggOrder),
 		}
 
-		f.fsInfo[user] = fi
+		f.fs[user] = fi
 		f.users = append(f.users, user)
 	}
 
@@ -366,8 +366,8 @@ func (f *fsMgr) CreateFs(caller utils.Address, user uint64, payToken uint32, bls
 	return nil
 }
 
-func (f *fsMgr) getFsInfo(user uint64) (*FSInfo, error) {
-	fi, ok := f.fsInfo[user]
+func (f *fsMgr) getFsInfo(user uint64) (*fsInfo, error) {
+	fi, ok := f.fs[user]
 	if !ok {
 		return nil, ErrRes
 	}
@@ -491,7 +491,7 @@ func (f *fsMgr) AddOrder(caller utils.Address, user, proIndex, start, end, size,
 		pi = newAggOrder()
 		fi.ao[proIndex] = pi
 
-		ch := &ChannelInfo{
+		ch := &channelInfo{
 			nonce:  0,
 			amount: big.NewInt(0), // pay from amount
 			expire: end,           // added?
@@ -529,6 +529,18 @@ func (f *fsMgr) AddOrder(caller utils.Address, user, proIndex, start, end, size,
 
 	f.balance[uKey].Sub(f.balance[uKey], payAndTax)
 	pi.nonce++
+
+	ind, err := rm.GetIndex(f.local, caller)
+	if err != nil {
+		return err
+	}
+
+	cnt, ok := f.count[ind]
+	if ok {
+		cnt++
+		f.count[ind] = cnt
+	}
+
 	return nil
 }
 
@@ -598,6 +610,17 @@ func (f *fsMgr) SubOrder(caller utils.Address, user, proIndex, start, end, size,
 
 	se.endPaid.Add(se.endPaid, endPaid)
 	pi.subNonce++
+
+	ind, err := rm.GetIndex(f.local, caller)
+	if err != nil {
+		return err
+	}
+
+	cnt, ok := f.count[ind]
+	if ok {
+		cnt++
+		f.count[ind] = cnt
+	}
 
 	return nil
 }

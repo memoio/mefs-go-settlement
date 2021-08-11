@@ -112,11 +112,12 @@ type RoleMgr interface {
 
 	GetTokenByIndex(caller utils.Address, index uint32) (utils.Address, error)
 	GetAddressByIndex(caller utils.Address, index uint64) (utils.Address, error)
+	GetIndex(caller, addr utils.Address) (uint64, error)
 	GetGroupByIndex(caller utils.Address, index uint64) (uint64, error)
 	GetKeepersByIndex(caller utils.Address, gindex uint64) ([]uint64, error)
 	GetProvidersByIndex(caller utils.Address, gindex uint64) ([]uint64, error)
 	GetInfoByIndex(caller utils.Address, index uint64) (*baseInfo, utils.Address, error)
-	GetGroupInfoByIndex(caller utils.Address, gindex uint64) (*GroupInfo, error)
+	GetGroupInfoByIndex(caller utils.Address, gindex uint64) (*groupInfo, error)
 
 	info
 	// stop service? not allowed

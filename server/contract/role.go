@@ -25,13 +25,13 @@ type baseInfo struct {
 	rewards     []*big.Int // 已结算的奖励，索引和代币对应
 }
 
-type TokenInfo struct {
+type tokenInfo struct {
 	index            uint32
 	rewardAccum      *big.Int // 本代币的accumulator
 	lastRewardSupply *big.Int // 上一次变更时的本代币奖励总量
 }
 
-func (t TokenInfo) update(amount, totalPledge *big.Int) {
+func (t tokenInfo) update(amount, totalPledge *big.Int) {
 	tv := new(big.Int)
 	tv.Add(tv, amount)
 	tv.Sub(tv, t.lastRewardSupply)
@@ -43,8 +43,8 @@ func (t TokenInfo) update(amount, totalPledge *big.Int) {
 	t.lastRewardSupply = amount // update to lastest
 }
 
-// GroupInfo has
-type GroupInfo struct {
+// groupInfo has
+type groupInfo struct {
 	isActive  bool
 	isBanned  bool          // 组是否已被禁用
 	level     uint16        // security level
@@ -63,11 +63,11 @@ type roleMgr struct {
 	info  map[utils.Address]*baseInfo
 
 	// manage group
-	groups []*GroupInfo
+	groups []*groupInfo
 
 	// 代币信息,0为主代币的代币地址
 	tokens []utils.Address
-	tInfo  map[utils.Address]*TokenInfo
+	tInfo  map[utils.Address]*tokenInfo
 
 	pledgeKeeper *big.Int // pledgeMoney for keeper
 	pledgePro    *big.Int // pledgeMoney for provider
@@ -85,10 +85,10 @@ func NewRoleMgr(caller, primaryToken utils.Address, kPledge, pPledge *big.Int) R
 
 		addrs:  make([]utils.Address, 0, 128),
 		info:   make(map[utils.Address]*baseInfo),
-		groups: make([]*GroupInfo, 0, 1),
+		groups: make([]*groupInfo, 0, 1),
 
 		tokens: make([]utils.Address, 0, 1),
-		tInfo:  make(map[utils.Address]*TokenInfo),
+		tInfo:  make(map[utils.Address]*tokenInfo),
 
 		pledgeKeeper: kPledge,
 		pledgePro:    pPledge,
@@ -107,6 +107,15 @@ func (r *roleMgr) GetOwnerAddress() utils.Address {
 	return r.admin
 }
 
+func (r *roleMgr) GetIndex(caller, addr utils.Address) (uint64, error) {
+	bi, ok := r.info[addr]
+	if ok {
+		return bi.index, nil
+	}
+
+	return 0, ErrRes
+}
+
 func (r *roleMgr) RegisterToken(caller, addr utils.Address, sign []byte) error {
 	// verify sign
 	_, ok := r.tInfo[addr]
@@ -116,7 +125,7 @@ func (r *roleMgr) RegisterToken(caller, addr utils.Address, sign []byte) error {
 	}
 
 	bal := getBalance(addr, r.local)
-	ti := &TokenInfo{
+	ti := &tokenInfo{
 		index:            uint32(len(r.tokens)),
 		rewardAccum:      big.NewInt(0),
 		lastRewardSupply: bal,
@@ -222,7 +231,7 @@ func (r *roleMgr) Withdraw(caller utils.Address, index uint64, tokenIndex uint32
 	return nil
 }
 
-func (r *roleMgr) GetGroupInfoByIndex(caller utils.Address, index uint64) (*GroupInfo, error) {
+func (r *roleMgr) GetGroupInfoByIndex(caller utils.Address, index uint64) (*groupInfo, error) {
 	if index >= uint64(len(r.groups)) {
 		return nil, ErrRes
 	}
@@ -396,7 +405,7 @@ func (r *roleMgr) CreateGroup(caller utils.Address, inds []uint64, level uint16,
 		}
 	}
 
-	gi := &GroupInfo{
+	gi := &groupInfo{
 		level:   level,
 		keepers: inds,
 	}
