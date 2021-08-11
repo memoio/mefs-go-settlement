@@ -25,6 +25,24 @@ type baseInfo struct {
 	rewards     []*big.Int // 已结算的奖励，索引和代币对应
 }
 
+type TokenInfo struct {
+	index            uint32
+	rewardAccum      *big.Int // 本代币的accumulator
+	lastRewardSupply *big.Int // 上一次变更时的本代币奖励总量
+}
+
+func (t TokenInfo) update(amount, totalPledge *big.Int) {
+	tv := new(big.Int)
+	tv.Add(tv, amount)
+	tv.Sub(tv, t.lastRewardSupply)
+	if tv.Cmp(zero) > 0 && totalPledge.Cmp(zero) > 0 {
+		tv.Div(tv, totalPledge)
+		t.rewardAccum.Add(t.rewardAccum, tv)
+	}
+
+	t.lastRewardSupply = amount // update to lastest
+}
+
 // GroupInfo has
 type GroupInfo struct {
 	isActive  bool
