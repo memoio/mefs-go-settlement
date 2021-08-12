@@ -75,16 +75,16 @@ func (e *ercToken) Transfer(caller, to utils.Address, value *big.Int) error {
 	// verify to is not zero
 	// verify value > 0
 	if value.Cmp(zero) < 0 {
-		return ErrRes
+		return ErrValue
 	}
 
 	// verify money is enough
 	val, ok := e.money[caller]
 	if !ok {
-		return ErrRes
+		return ErrEmpty
 	}
 	if val.Cmp(value) < 0 {
-		return ErrRes
+		return ErrBalanceNotEnough
 	}
 
 	// sub from caller
@@ -116,16 +116,16 @@ func (e *ercToken) TransferFrom(caller, from, to utils.Address, value *big.Int) 
 	// verify from and to is not zero address
 	// verify value > 0
 	if value.Cmp(zero) < 0 {
-		return ErrRes
+		return ErrValue
 	}
 
 	// verify money is enough
 	val, ok := e.money[from]
 	if !ok {
-		return ErrRes
+		return ErrEmpty
 	}
 	if val.Cmp(value) < 0 {
-		return ErrRes
+		return ErrBalanceNotEnough
 	}
 
 	// verify money is allowed by caller
@@ -137,11 +137,8 @@ func (e *ercToken) TransferFrom(caller, from, to utils.Address, value *big.Int) 
 	if !ok {
 		return ErrRes
 	}
-	if val.Cmp(value) < 0 {
-		return ErrRes
-	}
 	if aval.Cmp(value) < 0 {
-		return ErrRes
+		return ErrPermission
 	}
 
 	// sub from from
@@ -186,12 +183,12 @@ func getBalance(taddr, query utils.Address) *big.Int {
 func sendBalance(taddr, caller, to utils.Address, money *big.Int) error {
 	eti, ok := globalMap[taddr]
 	if !ok {
-		return ErrRes
+		return ErrEmpty
 	}
 
 	et, ok := eti.(ErcToken)
 	if !ok {
-		return ErrRes
+		return ErrMisType
 	}
 	return et.Transfer(caller, to, money)
 }
@@ -199,12 +196,12 @@ func sendBalance(taddr, caller, to utils.Address, money *big.Int) error {
 func sendBalanceFrom(taddr, caller, from, to utils.Address, money *big.Int) error {
 	eti, ok := globalMap[taddr]
 	if !ok {
-		return ErrRes
+		return ErrEmpty
 	}
 
 	et, ok := eti.(ErcToken)
 	if !ok {
-		return ErrRes
+		return ErrMisType
 	}
 	return et.TransferFrom(caller, from, to, money)
 }
@@ -212,12 +209,12 @@ func sendBalanceFrom(taddr, caller, from, to utils.Address, money *big.Int) erro
 func approve(taddr, caller, spender utils.Address, money *big.Int) error {
 	eti, ok := globalMap[taddr]
 	if !ok {
-		return ErrRes
+		return ErrEmpty
 	}
 
 	et, ok := eti.(ErcToken)
 	if !ok {
-		return ErrRes
+		return ErrMisType
 	}
 	et.Approve(caller, spender, money)
 

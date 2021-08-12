@@ -7,9 +7,9 @@ import (
 )
 
 const (
-	RoleUser     uint8 = 1
-	RoleProvider uint8 = 2
-	RoleKeeper   uint8 = 3
+	roleUser     uint8 = 1
+	roleProvider uint8 = 2
+	roleKeeper   uint8 = 3
 )
 
 type baseInfo struct {
@@ -32,8 +32,7 @@ type tokenInfo struct {
 }
 
 func (t tokenInfo) update(amount, totalPledge *big.Int) {
-	tv := new(big.Int)
-	tv.Add(tv, amount)
+	tv := new(big.Int).Set(amount)
 	tv.Sub(tv, t.lastRewardSupply)
 	if tv.Cmp(zero) > 0 && totalPledge.Cmp(zero) > 0 {
 		tv.Div(tv, totalPledge)
@@ -113,26 +112,81 @@ func (r *roleMgr) GetIndex(caller, addr utils.Address) (uint64, error) {
 		return bi.index, nil
 	}
 
-	return 0, ErrRes
+	return 0, ErrNoSuchAddr
 }
 
-func (r *roleMgr) RegisterToken(caller, addr utils.Address, sign []byte) error {
-	// verify sign
-	_, ok := r.tInfo[addr]
+func (r *roleMgr) GetTokenIndex(caller, addr utils.Address) (uint32, error) {
+	ti, ok := r.tInfo[addr]
 	if ok {
-		// exist
-		return ErrRes
+		return ti.index, nil
 	}
 
-	bal := getBalance(addr, r.local)
+	return 0, ErrNoSuchAddr
+}
+
+func (r *roleMgr) GetAllTokens(caller utils.Address) []utils.Address {
+	return r.tokens
+}
+
+func (r *roleMgr) GetAllAddrs(caller utils.Address) []utils.Address {
+	return r.addrs
+}
+
+func (r *roleMgr) GetAllGroups(caller utils.Address) []*groupInfo {
+	return r.groups
+}
+func (r *roleMgr) GetPledge(caller utils.Address) (*big.Int, *big.Int, *big.Int) {
+	return r.totalPledge, r.pledgeKeeper, r.pledgePro
+}
+
+func (r *roleMgr) GetGroupInfoByIndex(caller utils.Address, index uint64) (*groupInfo, error) {
+	if index >= uint64(len(r.groups)) {
+		return nil, ErrInput
+	}
+	return r.groups[index], nil
+}
+
+func (r *roleMgr) GetInfoByIndex(caller utils.Address, index uint64) (*baseInfo, utils.Address, error) {
+	var res utils.Address
+	if int(index) >= len(r.addrs) {
+		return nil, res, ErrInput
+	}
+
+	addr := r.addrs[index]
+	ki, ok := r.info[addr]
+	if !ok {
+		return nil, res, ErrEmpty
+	}
+
+	return ki, addr, nil
+}
+
+func (r *roleMgr) GetInfo(caller, addr utils.Address) (*baseInfo, error) {
+	bi, ok := r.info[addr]
+	if !ok {
+		return nil, ErrNoSuchAddr
+	}
+
+	return bi, nil
+}
+
+func (r *roleMgr) RegisterToken(caller, taddr utils.Address, sign []byte) error {
+	// verify sign
+	_, ok := r.tInfo[taddr]
+	if ok {
+		// exist
+		return ErrExist
+	}
+
+	bal := getBalance(taddr, r.local)
 	ti := &tokenInfo{
 		index:            uint32(len(r.tokens)),
 		rewardAccum:      big.NewInt(0),
 		lastRewardSupply: bal,
 	}
 
-	r.tokens = append(r.tokens, addr)
-	r.tInfo[addr] = ti
+	r.tokens = append(r.tokens, taddr)
+	r.tInfo[taddr] = ti
 
 	return nil
 }
@@ -141,7 +195,7 @@ func (r *roleMgr) Register(caller, addr utils.Address, signature []byte) error {
 	// verify sign
 	_, ok := r.info[addr]
 	if ok {
-		return ErrRes
+		return ErrExist
 	}
 
 	bi := &baseInfo{
@@ -155,7 +209,7 @@ func (r *roleMgr) Register(caller, addr utils.Address, signature []byte) error {
 	for i, tAddr := range r.tokens[1:] {
 		ti, ok := r.tInfo[tAddr]
 		if !ok {
-			return ErrRes
+			return ErrEmpty
 		}
 
 		bi.rewardAccum[i] = new(big.Int).Set(ti.rewardAccum)
@@ -168,33 +222,81 @@ func (r *roleMgr) Register(caller, addr utils.Address, signature []byte) error {
 	return nil
 }
 
-func (r *roleMgr) withdrawToken(caller utils.Address, index uint64, tokenIndex uint32, money *big.Int) error {
+func (r *roleMgr) GetBalance(caller utils.Address, index uint64) ([]*big.Int, error) {
+	bi, _, err := r.GetInfoByIndex(caller, index)
+	if err != nil {
+		return nil, err
+	}
+
+	res := make([]*big.Int, len(bi.rewards)+1)
+	res[0] = new(big.Int).Set(bi.amount)
+	for i := 0; i < len(bi.rewards); i++ {
+		taddr := r.tokens[i+1]
+		ti, ok := r.tInfo[taddr]
+		if !ok {
+			return nil, ErrEmpty
+		}
+
+		val := new(big.Int).Set(ti.rewardAccum)
+		bal := getBalance(taddr, r.local)
+		bal.Sub(bal, ti.lastRewardSupply)
+		if bal.Cmp(zero) > 0 && r.totalPledge.Cmp(zero) > 0 {
+			bal.Div(bal, r.totalPledge)
+			val.Add(val, bal)
+		}
+		val.Sub(val, bi.rewardAccum[i])
+		val.Mul(val, bi.amount)
+		val.Add(val, bi.rewards[i])
+		res[i+1] = val
+	}
+
+	return res, nil
+}
+
+func (r *roleMgr) Pledge(caller utils.Address, index uint64, money *big.Int, sign []byte) error {
+	// verify sign
+
+	// chekc money > 0
+	if money.Cmp(zero) < 0 {
+		return ErrValue
+	}
 
 	bi, _, err := r.GetInfoByIndex(caller, index)
 	if err != nil {
 		return err
 	}
 
-	tokenAddr, err := r.GetTokenByIndex(caller, tokenIndex)
+	// 更新token acc，结算奖励
+	for i, taddr := range r.tokens[1:] {
+		ti, ok := r.tInfo[taddr]
+		if !ok {
+			return ErrEmpty
+		}
+
+		bal := getBalance(taddr, r.local)
+
+		ti.update(bal, r.totalPledge)
+
+		if len(bi.rewardAccum) <= i {
+			bi.rewardAccum = append(bi.rewardAccum, new(big.Int))
+			bi.rewards = append(bi.rewards, new(big.Int))
+		}
+
+		res := new(big.Int).Set(ti.rewardAccum)
+		res.Sub(res, bi.rewardAccum[i])
+		res.Mul(res, bi.amount)
+		bi.rewards[i].Add(bi.rewards[i], res) // 添加奖励
+
+		bi.rewardAccum[i] = new(big.Int).Set(ti.rewardAccum) // 更新acc
+	}
+
+	addr := r.addrs[bi.index]
+	err = sendBalance(r.tokens[0], addr, r.local, money)
 	if err != nil {
 		return err
 	}
-
-	rw := bi.rewards[tokenIndex-1]
-
-	res := big.NewInt(0)
-
-	if money.Cmp(rw) > 0 {
-		res.Set(rw)
-	} else {
-		res.Set(money)
-	}
-
-	err = sendBalance(tokenAddr, r.local, r.addrs[bi.index], res)
-	if err != nil {
-		return err
-	}
-	bi.rewards[tokenIndex-1] = big.NewInt(0)
+	bi.amount.Add(bi.amount, money)
+	r.totalPledge.Add(r.totalPledge, money)
 
 	return nil
 }
@@ -212,74 +314,21 @@ func (r *roleMgr) Withdraw(caller utils.Address, index uint64, tokenIndex uint32
 
 	rw := new(big.Int).Set(bi.amount)
 
-	if bi.roleType == RoleKeeper {
+	if bi.roleType == roleKeeper {
 		rw.Sub(rw, r.pledgeKeeper)
-	} else if bi.roleType == RoleProvider {
+	} else if bi.roleType == roleProvider {
 		rw.Sub(rw, r.pledgePro)
 	}
 
-	if money.Cmp(rw) < 0 {
+	if money.Cmp(zero) > 0 && money.Cmp(rw) < 0 {
 		rw.Set(money)
 	}
 
-	err = sendBalance(r.tokens[0], r.local, r.addrs[bi.index], rw)
-	if err != nil {
-		return err
-	}
-	bi.amount.Sub(bi.amount, rw)
-
-	return nil
-}
-
-func (r *roleMgr) GetGroupInfoByIndex(caller utils.Address, index uint64) (*groupInfo, error) {
-	if index >= uint64(len(r.groups)) {
-		return nil, ErrRes
-	}
-	return r.groups[index], nil
-}
-
-func (r *roleMgr) GetInfoByIndex(caller utils.Address, index uint64) (*baseInfo, utils.Address, error) {
-	var res utils.Address
-	if int(index) >= len(r.addrs) {
-		return nil, res, ErrRes
-	}
-
-	addr := r.addrs[index]
-	ki, ok := r.info[addr]
-	if !ok {
-		return nil, res, ErrRes
-	}
-
-	return ki, addr, nil
-}
-
-func (r *roleMgr) GetInfo(caller, addr utils.Address) (*baseInfo, error) {
-	bi, ok := r.info[addr]
-	if !ok {
-		return nil, ErrRes
-	}
-
-	return bi, nil
-}
-
-func (r *roleMgr) Pledge(caller utils.Address, index uint64, money *big.Int, sign []byte) error {
-	// verify sign
-
-	// chekc money > 0
-	if money.Cmp(zero) < 0 {
-		return ErrRes
-	}
-
-	bi, _, err := r.GetInfoByIndex(caller, index)
-	if err != nil {
-		return err
-	}
-
-	// 更新token acc，结算奖励
+	// update token
 	for i, taddr := range r.tokens[1:] {
 		ti, ok := r.tInfo[taddr]
 		if !ok {
-			return nil
+			return ErrEmpty
 		}
 
 		bal := getBalance(taddr, r.local)
@@ -292,20 +341,64 @@ func (r *roleMgr) Pledge(caller utils.Address, index uint64, money *big.Int, sig
 		}
 
 		res := new(big.Int).Set(ti.rewardAccum)
-		res.Sub(res, bi.rewards[i])
+		res.Sub(res, bi.rewardAccum[i])
 		res.Mul(res, bi.amount)
-		bi.rewards[i].Add(bi.rewards[i], res) // 添加奖励
-
+		bi.rewards[i].Add(bi.rewards[i], res)                // 添加奖励
 		bi.rewardAccum[i] = new(big.Int).Set(ti.rewardAccum) // 更新acc
 	}
 
-	addr := r.addrs[bi.index]
-	err = sendBalance(r.tokens[0], addr, r.local, money)
+	err = sendBalance(r.tokens[0], r.local, r.addrs[bi.index], rw)
 	if err != nil {
 		return err
 	}
-	bi.amount.Add(bi.amount, money)
-	r.totalPledge.Add(r.totalPledge, money)
+	bi.amount.Sub(bi.amount, rw)
+	r.totalPledge.Sub(r.totalPledge, rw)
+
+	return nil
+}
+
+func (r *roleMgr) withdrawToken(caller utils.Address, index uint64, tokenIndex uint32, money *big.Int) error {
+	bi, _, err := r.GetInfoByIndex(caller, index)
+	if err != nil {
+		return err
+	}
+
+	taddr, err := r.GetTokenByIndex(caller, tokenIndex)
+	if err != nil {
+		return err
+	}
+
+	ti, ok := r.tInfo[taddr]
+	if !ok {
+		return nil
+	}
+
+	bal := getBalance(taddr, r.local)
+
+	ti.update(bal, r.totalPledge)
+	if uint32(len(bi.rewardAccum)) <= tokenIndex-1 {
+		bi.rewardAccum = append(bi.rewardAccum, new(big.Int))
+		bi.rewards = append(bi.rewards, new(big.Int))
+	}
+
+	res := new(big.Int).Set(ti.rewardAccum)
+	res.Sub(res, bi.rewardAccum[tokenIndex-1])
+	res.Mul(res, bi.amount)
+	bi.rewards[tokenIndex-1].Add(bi.rewards[tokenIndex-1], res)     // 添加奖励
+	bi.rewardAccum[tokenIndex-1] = new(big.Int).Set(ti.rewardAccum) // 更新acc
+
+	val := new(big.Int).Set(bi.rewards[tokenIndex-1])
+
+	if money.Cmp(val) < 0 {
+		res.Set(money)
+	}
+
+	err = sendBalance(taddr, r.local, r.addrs[bi.index], val)
+	if err != nil {
+		return err
+	}
+	bi.rewards[tokenIndex-1].Sub(bi.rewards[tokenIndex-1], val)
+	ti.lastRewardSupply = getBalance(taddr, r.local)
 
 	return nil
 }
@@ -326,14 +419,14 @@ func (r *roleMgr) RegisterKeeper(caller utils.Address, index uint64, blsKey, sig
 
 	// registered
 	if bi.roleType != 0 {
-		return ErrRes
+		return ErrRoleType
 	}
 
 	if bi.amount.Cmp(r.pledgeKeeper) < 0 {
-		return ErrRes
+		return ErrBalanceNotEnough
 	}
 
-	bi.roleType = RoleKeeper
+	bi.roleType = roleKeeper
 	bi.extra = blsKey
 
 	return nil
@@ -348,14 +441,14 @@ func (r *roleMgr) RegisterProvider(caller utils.Address, index uint64, signature
 
 	// registered
 	if bi.roleType != 0 {
-		return ErrRes
+		return ErrRoleType
 	}
 
 	if bi.amount.Cmp(r.pledgePro) < 0 {
-		return ErrRes
+		return ErrBalanceNotEnough
 	}
 
-	bi.roleType = RoleProvider
+	bi.roleType = roleProvider
 
 	return nil
 }
@@ -363,10 +456,10 @@ func (r *roleMgr) RegisterProvider(caller utils.Address, index uint64, signature
 func (r *roleMgr) RegisterUser(caller utils.Address, index, gIndex uint64, blsKey []byte) error {
 	// verify sender is contract
 	if gIndex > uint64(len(r.groups)) {
-		return ErrRes
+		return ErrInput
 	}
 	if r.groups[gIndex].fsAddr != caller {
-		return ErrRes
+		return ErrInput
 	}
 
 	bi, _, err := r.GetInfoByIndex(caller, index)
@@ -376,10 +469,10 @@ func (r *roleMgr) RegisterUser(caller utils.Address, index, gIndex uint64, blsKe
 
 	// registered
 	if bi.roleType != 0 {
-		return ErrRes
+		return ErrRoleType
 	}
 
-	bi.roleType = RoleUser
+	bi.roleType = roleUser
 	bi.gIndex = gIndex
 	bi.extra = blsKey
 
@@ -397,11 +490,11 @@ func (r *roleMgr) CreateGroup(caller utils.Address, inds []uint64, level uint16,
 
 		// have been in some group
 		if ki.isActive {
-			return ErrRes
+			return ErrPermission
 		}
 
-		if ki.roleType != RoleKeeper {
-			return ErrRes
+		if ki.roleType != roleKeeper {
+			return ErrRoleType
 		}
 	}
 
@@ -436,13 +529,13 @@ func (r *roleMgr) SetFsAddrForGroup(caller utils.Address, fAddr utils.Address, a
 	gIndex := fm.GetInfo(r.local)
 
 	if gIndex >= uint64(len(r.groups)) {
-		return ErrRes
+		return ErrInput
 	}
 
 	gi := r.groups[gIndex]
 	//verify r.groups[gIndex].fsAddr is not set
 	if gi.fsAddr != utils.NilAddress {
-		return ErrRes
+		return ErrExist
 	}
 
 	// need verify faddr.gindex?
@@ -453,7 +546,7 @@ func (r *roleMgr) SetFsAddrForGroup(caller utils.Address, fAddr utils.Address, a
 
 func (r *roleMgr) AddKeeperToGroup(caller utils.Address, index, gIndex uint64, ksign, asign []byte) error {
 	if len(r.groups) <= int(gIndex) {
-		return ErrRes
+		return ErrInput
 	}
 
 	// verify asign
@@ -463,13 +556,13 @@ func (r *roleMgr) AddKeeperToGroup(caller utils.Address, index, gIndex uint64, k
 		return err
 	}
 
-	if ki.roleType != RoleKeeper {
-		return ErrRes
+	if ki.roleType != roleKeeper {
+		return ErrRoleType
 	}
 
 	// have been in some group
 	if ki.isActive {
-		return ErrRes
+		return ErrPermission
 	}
 
 	// verify psign
@@ -490,7 +583,7 @@ func (r *roleMgr) AddKeeperToGroup(caller utils.Address, index, gIndex uint64, k
 func (r *roleMgr) AddProviderToGroup(caller utils.Address, index, gIndex uint64, sign []byte) error {
 	// verify sign by addr[index]
 	if len(r.groups) <= int(gIndex) {
-		return ErrRes
+		return ErrInput
 	}
 
 	pi, _, err := r.GetInfoByIndex(caller, index)
@@ -500,11 +593,11 @@ func (r *roleMgr) AddProviderToGroup(caller utils.Address, index, gIndex uint64,
 
 	// have been in some group
 	if pi.isActive {
-		return ErrRes
+		return ErrPermission
 	}
 
-	if pi.roleType != RoleProvider {
-		return ErrRes
+	if pi.roleType != roleProvider {
+		return ErrRoleType
 	}
 
 	gi := r.groups[gIndex]
@@ -517,7 +610,7 @@ func (r *roleMgr) AddProviderToGroup(caller utils.Address, index, gIndex uint64,
 
 func (r *roleMgr) GetTokenByIndex(caller utils.Address, index uint32) (utils.Address, error) {
 	if index >= uint32(len(r.tokens)) {
-		return utils.Address{}, ErrRes
+		return utils.Address{}, ErrInput
 	}
 
 	return r.tokens[index], nil
@@ -525,7 +618,7 @@ func (r *roleMgr) GetTokenByIndex(caller utils.Address, index uint32) (utils.Add
 
 func (r *roleMgr) GetAddressByIndex(caller utils.Address, index uint64) (utils.Address, error) {
 	if index >= uint64(len(r.addrs)) {
-		return utils.Address{}, ErrRes
+		return utils.Address{}, ErrInput
 	}
 
 	return r.addrs[index], nil
@@ -533,7 +626,7 @@ func (r *roleMgr) GetAddressByIndex(caller utils.Address, index uint64) (utils.A
 
 func (r *roleMgr) GetKeepersByIndex(caller utils.Address, index uint64) ([]uint64, error) {
 	if index >= uint64(len(r.groups)) {
-		return nil, ErrRes
+		return nil, ErrInput
 	}
 
 	g := r.groups[index]
@@ -543,7 +636,7 @@ func (r *roleMgr) GetKeepersByIndex(caller utils.Address, index uint64) ([]uint6
 
 func (r *roleMgr) GetProvidersByIndex(caller utils.Address, index uint64) ([]uint64, error) {
 	if index >= uint64(len(r.groups)) {
-		return nil, ErrRes
+		return nil, ErrInput
 	}
 
 	g := r.groups[index]
@@ -553,7 +646,7 @@ func (r *roleMgr) GetProvidersByIndex(caller utils.Address, index uint64) ([]uin
 
 func (r *roleMgr) GetGroupByIndex(caller utils.Address, index uint64) (uint64, error) {
 	if index >= uint64(len(r.addrs)) {
-		return 0, ErrRes
+		return 0, ErrInput
 	}
 
 	addr := r.addrs[index]
@@ -563,18 +656,6 @@ func (r *roleMgr) GetGroupByIndex(caller utils.Address, index uint64) (uint64, e
 	}
 
 	return 0, ErrRes
-}
-
-func getRoleMgrByAddress(rAddr utils.Address) (RoleMgr, error) {
-	ri, ok := globalMap[rAddr]
-	if ok {
-		r, ok := ri.(RoleMgr)
-		if ok {
-			return r, nil
-		}
-	}
-
-	return nil, ErrRes
 }
 
 func getAddressByIndex(rAddr, caller utils.Address, index uint64) (utils.Address, error) {

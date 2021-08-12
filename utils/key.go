@@ -116,6 +116,7 @@ func Verify2(pk, msg, signature []byte) bool {
 	return secp256k1.VerifySignature(pk[:], msg, signature)
 }
 
+// Verify uses ECRecover
 func Verify(addr Address, msg, signature []byte) bool {
 	pk, err := secp256k1.RecoverPubkey(msg, signature)
 	if err != nil {

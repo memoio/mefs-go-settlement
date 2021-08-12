@@ -55,6 +55,7 @@ admin创建RoleMgr合约
 + Register获取index；
 + Pledge质押
 + RegisterKeeper注册
++ Withdraw
 
 基于pre2
 
@@ -67,6 +68,7 @@ admin创建RoleMgr合约
 + Register获取index；
 + Pledge质押
 + RegisterKeeper注册
++ Withdraw
 
 基于pre2
 

@@ -12,7 +12,17 @@ var zero = new(big.Int).SetInt64(0)
 
 var (
 	// ErrRes is
-	ErrRes = errors.New("error result")
+	ErrRes              = errors.New("error result")
+	ErrInput            = errors.New("input is wrong")
+	ErrEmpty            = errors.New("empty, no such value")
+	ErrExist            = errors.New("is existed")
+	ErrValue            = errors.New("value is less than zero")
+	ErrNoSuchAddr       = errors.New("not resgister")
+	ErrMisType          = errors.New("mistype contract")
+	ErrRoleType         = errors.New("mistype contract")
+	ErrBalanceNotEnough = errors.New("balance is insufficient")
+	ErrPermission       = errors.New("permission is not right")
+	ErrNonce            = errors.New("nonce is not right")
 )
 
 var globalMap map[utils.Address]interface{}
@@ -30,7 +40,7 @@ func getErcToken(addr utils.Address) (ErcToken, error) {
 		}
 	}
 
-	return nil, ErrRes
+	return nil, ErrEmpty
 }
 
 func getRoleMgr(addr utils.Address) (RoleMgr, error) {
@@ -42,7 +52,7 @@ func getRoleMgr(addr utils.Address) (RoleMgr, error) {
 		}
 	}
 
-	return nil, ErrRes
+	return nil, ErrEmpty
 }
 
 func getFsMgr(addr utils.Address) (FsMgr, error) {
@@ -54,7 +64,7 @@ func getFsMgr(addr utils.Address) (FsMgr, error) {
 		}
 	}
 
-	return nil, ErrRes
+	return nil, ErrEmpty
 }
 
 type info interface {
@@ -88,6 +98,8 @@ type RoleMgr interface {
 	Register(caller, addr utils.Address, sign []byte) error
 	// 获取addr地址的相关信息
 	GetInfo(caller, addr utils.Address) (*baseInfo, error)
+	GetIndex(caller, addr utils.Address) (uint64, error)
+	GetTokenIndex(caller, taddr utils.Address) (uint32, error)
 
 	// 质押,
 	Pledge(caller utils.Address, index uint64, money *big.Int, signature []byte) error
@@ -110,14 +122,22 @@ type RoleMgr interface {
 	// 向组中添加provider
 	AddProviderToGroup(caller utils.Address, index, gIndex uint64, psign []byte) error
 
-	GetTokenByIndex(caller utils.Address, index uint32) (utils.Address, error)
+	GetBalance(caller utils.Address, index uint64) ([]*big.Int, error)
+
 	GetAddressByIndex(caller utils.Address, index uint64) (utils.Address, error)
-	GetIndex(caller, addr utils.Address) (uint64, error)
+	GetInfoByIndex(caller utils.Address, index uint64) (*baseInfo, utils.Address, error)
+
+	GetTokenByIndex(caller utils.Address, index uint32) (utils.Address, error)
+
 	GetGroupByIndex(caller utils.Address, index uint64) (uint64, error)
+	GetGroupInfoByIndex(caller utils.Address, gindex uint64) (*groupInfo, error)
 	GetKeepersByIndex(caller utils.Address, gindex uint64) ([]uint64, error)
 	GetProvidersByIndex(caller utils.Address, gindex uint64) ([]uint64, error)
-	GetInfoByIndex(caller utils.Address, index uint64) (*baseInfo, utils.Address, error)
-	GetGroupInfoByIndex(caller utils.Address, gindex uint64) (*groupInfo, error)
+
+	GetPledge(caller utils.Address) (*big.Int, *big.Int, *big.Int)
+	GetAllTokens(caller utils.Address) []utils.Address
+	GetAllAddrs(caller utils.Address) []utils.Address
+	GetAllGroups(caller utils.Address) []*groupInfo
 
 	info
 	// stop service? not allowed
@@ -144,6 +164,10 @@ type FsMgr interface {
 
 	GetInfo(caller utils.Address) uint64
 	GetFsInfo(caller utils.Address, user uint64) (uint32, []uint64, error)
+
+	GetTokens(caller utils.Address) []uint32
+	// return avalilable, locked, paid
+	GetBalance(caller utils.Address, index uint64, tIndex uint32) (*big.Int, *big.Int, *big.Int)
 
 	info
 }
