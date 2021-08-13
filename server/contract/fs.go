@@ -269,7 +269,7 @@ func NewFsMgr(caller, rAddr utils.Address, gIndex uint64) (FsMgr, error) {
 		fs:    make(map[uint64]*fsInfo),
 
 		keepers:    keepers,
-		period:     60,
+		period:     10,
 		lastTime:   uint64(time.Now().Unix()),
 		tAcc:       make(map[uint32]*big.Int),
 		totalCount: 0,
@@ -585,6 +585,7 @@ func (f *fsMgr) AddOrder(caller utils.Address, user, proIndex, start, end, size,
 	if ok {
 		cnt++
 		f.count[ind] = cnt
+		f.totalCount++
 	}
 
 	return nil
@@ -666,6 +667,7 @@ func (f *fsMgr) SubOrder(caller utils.Address, user, proIndex, start, end, size,
 	if ok {
 		cnt++
 		f.count[ind] = cnt
+		f.totalCount++
 	}
 
 	return nil
@@ -756,7 +758,7 @@ func (f *fsMgr) KeeperWithdraw(caller utils.Address, keeper uint64, tokenIndex u
 					}
 					ti.Sub(ti, pro)
 				} else {
-					f.count[kindex] = 0
+					f.count[kindex] = 1
 				}
 			}
 		}
@@ -773,7 +775,7 @@ func (f *fsMgr) KeeperWithdraw(caller utils.Address, keeper uint64, tokenIndex u
 
 	bal, ok := f.balance[nk]
 	if !ok {
-		return ErrBalanceNotEnough
+		f.balance[nk] = big.NewInt(0)
 	}
 
 	if amount.Cmp(zero) == 0 || amount.Cmp(bal) > 0 {

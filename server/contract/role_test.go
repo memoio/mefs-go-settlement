@@ -562,6 +562,39 @@ func testProWithdraw(t *testing.T, rAddr, fsAddr utils.Address, proIndex uint64,
 	}
 }
 
+func testKeeperWithdraw(t *testing.T, rAddr, fsAddr utils.Address, kIndex uint64, amount *big.Int) {
+	rm, err := getRoleMgr(rAddr)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	kAddr, err := rm.GetAddressByIndex(rAddr, kIndex)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tAddr, err := rm.GetTokenByIndex(rAddr, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	fm, err := getFsMgr(fsAddr)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	avail, _, _ := fm.GetBalance(kAddr, kIndex, 1)
+	t.Log("before wd:", avail, getBalance(tAddr, kAddr))
+
+	err = fm.KeeperWithdraw(kAddr, kIndex, 1, amount, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	avail, _, _ = fm.GetBalance(kAddr, kIndex, 1)
+	t.Log("after wd:", avail, getBalance(tAddr, kAddr))
+}
+
 func TestRole(t *testing.T) {
 	tAddr := testErc(t)
 	rAddr := testCreateRoleMgr(t, tAddr)
@@ -599,246 +632,18 @@ func TestRole(t *testing.T) {
 
 	nt := uint64(time.Now().Unix())
 
-	testAddOrder(t, rAddr, fAddr, kIndex, uIndex, pIndex, nt-150, nt+10, 300, 0)
-	testAddOrder(t, rAddr, fAddr, kIndex, uIndex, pIndex, nt-100, nt+30, 200, 1)
+	testAddOrder(t, rAddr, fAddr, kIndex, uIndex, pIndex, nt-190, nt+10, 300, 0)
+	testAddOrder(t, rAddr, fAddr, kIndex, uIndex, pIndex, nt-80, nt+20, 200, 1)
 
 	testProWithdraw(t, rAddr, fAddr, pIndex, big.NewInt(2000))
 	testProWithdraw(t, rAddr, fAddr, pIndex, big.NewInt(2000))
 	testProWithdraw(t, rAddr, fAddr, pIndex, big.NewInt(9000))
 
 	time.Sleep(11 * time.Second)
-	testSubOrder(t, rAddr, fAddr, kIndex, uIndex, pIndex, nt-150, nt+10, 300, 0)
+	testSubOrder(t, rAddr, fAddr, kIndex, uIndex, pIndex, nt-190, nt+10, 300, 0)
 	time.Sleep(10 * time.Second)
-	testSubOrder(t, rAddr, fAddr, kIndex, uIndex, pIndex, nt-100, nt+20, 200, 1)
+	testSubOrder(t, rAddr, fAddr, kIndex, uIndex, pIndex, nt-80, nt+20, 200, 1)
 
-	t.Fatal("end")
-}
-
-func TestRoleOld(t *testing.T) {
-	adminkey, err := utils.GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	adminAddr := utils.ToAddress(adminkey.PubKey)
-	et, err := NewErcToken(adminAddr)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Log("========= create roleMgr ============")
-
-	rm := NewRoleMgr(adminAddr, et.GetContractAddress(), big.NewInt(123450), big.NewInt(12345))
-
-	t.Log("========= register provider ============")
-	prokey, err := utils.GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	proAddr := utils.ToAddress(prokey.PubKey)
-	err = sendBalance(et.GetContractAddress(), adminAddr, proAddr, big.NewInt(12345))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	err = rm.Register(proAddr, proAddr, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	pInfo, err := rm.GetInfo(proAddr, proAddr)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Log("info:", pInfo)
-
-	approve(et.GetContractAddress(), proAddr, rm.GetContractAddress(), big.NewInt(12345))
-
-	err = rm.Pledge(proAddr, 0, big.NewInt(12345), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	err = rm.RegisterKeeper(proAddr, 0, nil, nil)
-	if err == nil {
-		t.Fatal("should fail")
-	}
-
-	err = rm.RegisterProvider(proAddr, 0, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	rInfo2, err := rm.GetInfo(proAddr, proAddr)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Log("info2:", rInfo2)
-
-	t.Log("========= register keeper ============")
-	for i := 0; i < 4; i++ {
-		kkey, err := utils.GenerateKey(rand.Reader)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		kAddr := utils.ToAddress(kkey.PubKey)
-		err = sendBalance(et.GetContractAddress(), adminAddr, kAddr, big.NewInt(123450))
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		err = rm.Register(kAddr, kAddr, nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		approve(et.GetContractAddress(), kAddr, rm.GetContractAddress(), big.NewInt(123450))
-
-		rInfo, err := rm.GetInfo(kAddr, kAddr)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		err = rm.Pledge(kAddr, rInfo.index, big.NewInt(123450), nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		err = rm.RegisterKeeper(kAddr, rInfo.index, nil, nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		rInfo, err = rm.GetInfo(kAddr, kAddr)
-		if err != nil {
-			t.Fatal(err)
-		}
-		t.Log("info:", rInfo)
-	}
-
-	t.Log("========= create group ============")
-	err = rm.CreateGroup(adminAddr, []uint64{1, 2}, 3, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	gi, err := rm.GetGroupInfoByIndex(adminAddr, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Log("ginfo:", gi)
-
-	err = rm.AddKeeperToGroup(adminAddr, 3, 0, nil, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	gi, err = rm.GetGroupInfoByIndex(adminAddr, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Log("ginfo2:", gi)
-
-	err = rm.AddProviderToGroup(proAddr, 0, 0, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	ks, err := rm.GetKeepersByIndex(adminAddr, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Log(ks)
-
-	ps, err := rm.GetProvidersByIndex(adminAddr, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Log(ps)
-
-	t.Log("========= create fs ============")
-
-	fs, err := NewFsMgr(adminAddr, rm.GetContractAddress(), 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	err = rm.SetFsAddrForGroup(adminAddr, fs.GetContractAddress(), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	err = rm.SetFsAddrForGroup(adminAddr, fs.GetContractAddress(), nil)
-	if err == nil {
-		t.Fatal("should fail")
-	}
-
-	gi, err = rm.GetGroupInfoByIndex(adminAddr, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if gi.fsAddr != fs.GetContractAddress() {
-		t.Fatal("set fs addr fails")
-	}
-	t.Log("ginfo3:", gi.fsAddr)
-
-	t.Log("========= create user ============")
-
-	userkey, err := utils.GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	userAddr := utils.ToAddress(userkey.PubKey)
-	err = sendBalance(et.GetContractAddress(), adminAddr, userAddr, big.NewInt(1234500000000))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	err = rm.Register(userAddr, userAddr, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	uInfo, err := rm.GetInfo(userAddr, userAddr)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	err = fs.CreateFs(userAddr, uInfo.index, 0, nil, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	uInfo, err = rm.GetInfo(userAddr, userAddr)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if uInfo.roleType != roleUser {
-		t.Fatal("set user fail")
-	}
-
-	t.Log(uInfo)
-
-	approve(et.GetContractAddress(), userAddr, fs.GetContractAddress(), big.NewInt(12345000000))
-
-	err = fs.Recharge(userAddr, uInfo.index, 0, big.NewInt(123450), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	err = fs.AddOrder(userAddr, uInfo.index, pInfo.index, 0, 100, 100, 0, 0, big.NewInt(321), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	err = fs.SubOrder(userAddr, uInfo.index, pInfo.index, 0, 100, 100, 0, 0, big.NewInt(321), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// need test value
-
+	testKeeperWithdraw(t, rAddr, fAddr, kIndex, big.NewInt(1000))
 	t.Fatal("end")
 }

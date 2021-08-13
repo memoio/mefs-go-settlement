@@ -10,6 +10,7 @@ import (
 // for compare
 var zero = new(big.Int).SetInt64(0)
 
+// erros
 var (
 	// ErrRes is
 	ErrRes              = errors.New("error result")
@@ -23,6 +24,54 @@ var (
 	ErrBalanceNotEnough = errors.New("balance is insufficient")
 	ErrPermission       = errors.New("permission is not right")
 	ErrNonce            = errors.New("nonce is not right")
+)
+
+// default value
+
+const (
+	KiB = 1024
+	MiB = 1048576
+	GiB = 1073741824
+	TiB = 1099511627776
+
+	KB = 1e3
+	MB = 1e6
+	GB = 1e9
+	TB = 1e12
+
+	Day    = 86400
+	Hour   = 3600
+	Minute = 60
+
+	Wei   = 1
+	GWei  = 1e9
+	Token = 1e18
+)
+
+const (
+	DefaultSecurity uint16 = 7
+
+	// DefaultCycle is default cycle: 1 day
+	DefaultCycle uint64 = Day
+
+	// DefaultCapacity is default store capacity： 1GB
+	DefaultCapacity uint64 = GiB
+	// DefaultDuration is default store days： 100 days
+	DefaultDuration uint64 = 100 * Day
+
+	// DepositCapacity is provider deposit capacity, 1TB
+	DepositCapacity uint64 = TiB
+
+	// ProviderDeposit is provider deposit
+	ProviderDeposit uint64 = 1 // Token
+	// KeeperDeposit is keeper deposit；
+	KeeperDeposit uint64 = 100 // Token
+
+	// ReadPrice is read price 0.01-0.04 $/GB(?)(0.25 rmb-0.5rmb/GB in aliyun oss)
+	ReadPrice uint64 = 1e4 * GWei // per MB
+
+	// StorePrice is stored price 1-4$/TB*Month (33 rmb/TB*Month in aliyun oss)
+	StorePrice uint64 = 100 * GWei // per MB*day
 )
 
 var globalMap map[utils.Address]interface{}
