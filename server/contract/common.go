@@ -80,6 +80,10 @@ func init() {
 	globalMap = make(map[utils.Address]interface{})
 }
 
+func GetMap() map[utils.Address]interface{} {
+	return globalMap
+}
+
 func getErcToken(addr utils.Address) (ErcToken, error) {
 	ri, ok := globalMap[addr]
 	if ok {
@@ -208,7 +212,6 @@ type FsMgr interface {
 	AddOrder(caller utils.Address, user, proIndex, start, end, size, nonce uint64, tokenIndex uint32, sprice *big.Int, sign []byte) error
 	SubOrder(caller utils.Address, user, proIndex, start, end, size, nonce uint64, tokenIndex uint32, sprice *big.Int, sign []byte) error
 	ProWithdraw(caller utils.Address, proIndex uint64, tokenIndex uint32, pay, lost *big.Int, sign []byte) error
-
 	KeeperWithdraw(caller utils.Address, keeperIndex uint64, tokenIndex uint32, amount *big.Int, sign []byte) error
 
 	GetInfo(caller utils.Address) uint64
