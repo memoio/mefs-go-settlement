@@ -20,10 +20,7 @@ func testErc(t *testing.T) utils.Address {
 	}
 	adminAddr := utils.ToAddress(adminkey.PubKey)
 
-	et, err := NewErcToken(adminAddr)
-	if err != nil {
-		t.Fatal(err)
-	}
+	et := NewErcToken(adminAddr)
 
 	t.Log("et token adminAddr:", et.GetOwnerAddress(), "local:", et.GetContractAddress(), "value:", getBalance(et.GetContractAddress(), adminAddr))
 
@@ -174,7 +171,7 @@ func testPledge(t *testing.T, rAddr utils.Address, amount *big.Int) uint64 {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ui.amount.Cmp(amount) != 0 {
+	if ui.rewards[0].Cmp(amount) != 0 {
 		t.Fatal("pledge fail")
 	}
 
@@ -201,6 +198,9 @@ func testWithdraw(t *testing.T, rAddr utils.Address, index uint64, tIndex uint32
 
 	if send {
 		err = et.Transfer(et.GetOwnerAddress(), rm.GetContractAddress(), big.NewInt(100000000))
+		if err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	bal, err := rm.GetBalance(userAddr, ui.index)
@@ -225,8 +225,9 @@ func testWithdraw(t *testing.T, rAddr utils.Address, index uint64, tIndex uint32
 	after := et.BalanceOf(userAddr, userAddr)
 	after.Sub(after, before)
 
+	kp, pp, res := rm.GetPledge(userAddr)
+	t.Log(res)
 	if tIndex == 0 {
-		_, kp, pp := rm.GetPledge(userAddr)
 		if ui.roleType == roleKeeper {
 			after.Add(after, kp)
 		} else if ui.roleType == roleProvider {
@@ -359,8 +360,8 @@ func testSetFsAddr(t *testing.T, rAddr, fsAddr utils.Address, gIndex uint64) {
 	}
 
 	err = rm.SetFsAddrForGroup(rm.GetOwnerAddress(), fsAddr, nil)
-	if err != nil {
-		t.Fatal(err)
+	if err == nil {
+		t.Fatal("should fail for set fs")
 	}
 
 	gi, err := rm.GetGroupInfoByIndex(rAddr, gIndex)
@@ -368,12 +369,12 @@ func testSetFsAddr(t *testing.T, rAddr, fsAddr utils.Address, gIndex uint64) {
 		t.Fatal(err)
 	}
 
-	if gi.fsAddr != fsAddr {
+	if gi.fsAddr == fsAddr {
 		t.Fatal("set fs addr fails")
 	}
 }
 
-func testCreateUser(t *testing.T, rAddr, fsAddr utils.Address) uint64 {
+func testCreateUser(t *testing.T, rAddr utils.Address, gIndex uint64) uint64 {
 	rm, err := getRoleMgr(rAddr)
 	if err != nil {
 		t.Fatal(err)
@@ -428,7 +429,12 @@ func testCreateUser(t *testing.T, rAddr, fsAddr utils.Address) uint64 {
 		t.Fatal(err)
 	}
 
-	fm, err := getFsMgr(fsAddr)
+	gi, err := rm.GetGroupInfoByIndex(userAddr, gIndex)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	fm, err := getFsMgr(gi.fsAddr)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -477,7 +483,7 @@ func testAddOrder(t *testing.T, rAddr, fsAddr utils.Address, kIndex, userIndex, 
 	bal, _, _ := fm.GetBalance(kAddr, userIndex, 1)
 	_, pbal, _ := fm.GetBalance(kAddr, proIndex, 1)
 	t.Log("before:", bal, pbal)
-	err = fm.AddOrder(kAddr, userIndex, proIndex, start, end, size, nonce, 1, big.NewInt(600000), nil)
+	err = fm.AddOrder(kAddr, userIndex, proIndex, start, end, size, nonce, 1, big.NewInt(600000), nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -504,7 +510,7 @@ func testSubOrder(t *testing.T, rAddr, fsAddr utils.Address, kIndex, userIndex, 
 	_, pbal, _ := fm.GetBalance(kAddr, proIndex, 1)
 	avail, _, _ := fm.GetBalance(kAddr, kIndex, 1)
 	t.Log("before:", bal, pbal, avail)
-	err = fm.SubOrder(kAddr, userIndex, proIndex, start, end, size, nonce, 1, big.NewInt(600000), nil)
+	err = fm.SubOrder(kAddr, userIndex, proIndex, start, end, size, nonce, 1, big.NewInt(600000), nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -624,11 +630,22 @@ func TestRole(t *testing.T) {
 	testWithdraw(t, rAddr, kIndex, 0, false)
 	testWithdraw(t, rAddr, pIndex, 0, false)
 
-	fAddr := testCreateFsMgr(t, rAddr, gIndex)
+	//fAddr := testCreateFsMgr(t, rAddr, gIndex)
+	//testSetFsAddr(t, rAddr, fAddr, gIndex)
 
-	testSetFsAddr(t, rAddr, fAddr, gIndex)
+	uIndex := testCreateUser(t, rAddr, gIndex)
 
-	uIndex := testCreateUser(t, rAddr, fAddr)
+	rm, err := getRoleMgr(rAddr)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	gi, err := rm.GetGroupInfoByIndex(rAddr, gIndex)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	fAddr := gi.fsAddr
 
 	nt := uint64(time.Now().Unix())
 

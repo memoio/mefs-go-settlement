@@ -20,8 +20,7 @@ type baseInfo struct {
 	gIndex   uint64 // 所属group
 	extra    []byte // for offline
 
-	amount      *big.Int   // 映射代币的余额
-	rewardAccum []*big.Int // 质押开始时的accumulator，索引和代币对应
+	rewardAccum []*big.Int // 质押开始时的accumulator，索引和代币对应; 0号为主代币
 	rewards     []*big.Int // 已结算的奖励，索引和代币对应
 }
 
@@ -29,17 +28,6 @@ type tokenInfo struct {
 	index            uint32
 	rewardAccum      *big.Int // 本代币的accumulator
 	lastRewardSupply *big.Int // 上一次变更时的本代币奖励总量
-}
-
-func (t tokenInfo) update(amount, totalPledge *big.Int) {
-	tv := new(big.Int).Set(amount)
-	tv.Sub(tv, t.lastRewardSupply)
-	if tv.Cmp(zero) > 0 && totalPledge.Cmp(zero) > 0 {
-		tv.Div(tv, totalPledge)
-		t.rewardAccum.Add(t.rewardAccum, tv)
-	}
-
-	t.lastRewardSupply = amount // update to lastest
 }
 
 // groupInfo has
@@ -70,7 +58,6 @@ type roleMgr struct {
 
 	pledgeKeeper *big.Int // pledgeMoney for keeper
 	pledgePro    *big.Int // pledgeMoney for provider
-	totalPledge  *big.Int
 }
 
 // NewRoleMgr can be admin by mutiple signatures
@@ -91,9 +78,17 @@ func NewRoleMgr(caller, primaryToken utils.Address, kPledge, pPledge *big.Int) R
 
 		pledgeKeeper: kPledge,
 		pledgePro:    pPledge,
-		totalPledge:  big.NewInt(0),
 	}
+
+	ti := &tokenInfo{
+		index:            0,
+		rewardAccum:      big.NewInt(0),
+		lastRewardSupply: getBalance(primaryToken, local),
+	}
+
 	rm.tokens = append(rm.tokens, primaryToken)
+	rm.tInfo[primaryToken] = ti
+
 	globalMap[local] = rm
 	return rm
 }
@@ -135,8 +130,13 @@ func (r *roleMgr) GetAllAddrs(caller utils.Address) []utils.Address {
 func (r *roleMgr) GetAllGroups(caller utils.Address) []*groupInfo {
 	return r.groups
 }
-func (r *roleMgr) GetPledge(caller utils.Address) (*big.Int, *big.Int, *big.Int) {
-	return r.totalPledge, r.pledgeKeeper, r.pledgePro
+func (r *roleMgr) GetPledge(caller utils.Address) (*big.Int, *big.Int, []*big.Int) {
+	var res []*big.Int
+	for _, taddr := range r.tokens {
+		ti := r.tInfo[taddr]
+		res = append(res, ti.lastRewardSupply)
+	}
+	return r.pledgeKeeper, r.pledgePro, res
 }
 
 func (r *roleMgr) GetGroupInfoByIndex(caller utils.Address, index uint64) (*groupInfo, error) {
@@ -201,12 +201,11 @@ func (r *roleMgr) Register(caller, addr utils.Address, signature []byte) error {
 	bi := &baseInfo{
 		roleType:    0,
 		index:       uint64(len(r.addrs)),
-		amount:      big.NewInt(0),
-		rewardAccum: make([]*big.Int, len(r.tokens)-1),
-		rewards:     make([]*big.Int, len(r.tokens)-1),
+		rewardAccum: make([]*big.Int, len(r.tokens)),
+		rewards:     make([]*big.Int, len(r.tokens)),
 	}
 
-	for i, tAddr := range r.tokens[1:] {
+	for i, tAddr := range r.tokens {
 		ti, ok := r.tInfo[tAddr]
 		if !ok {
 			return ErrEmpty
@@ -228,10 +227,13 @@ func (r *roleMgr) GetBalance(caller utils.Address, index uint64) ([]*big.Int, er
 		return nil, err
 	}
 
-	res := make([]*big.Int, len(bi.rewards)+1)
-	res[0] = new(big.Int).Set(bi.amount)
+	t0 := r.tInfo[r.tokens[0]]
+	totalPledge := new(big.Int).Set(t0.lastRewardSupply)
+	amount := new(big.Int).Set(bi.rewards[0])
+
+	res := make([]*big.Int, len(bi.rewards))
 	for i := 0; i < len(bi.rewards); i++ {
-		taddr := r.tokens[i+1]
+		taddr := r.tokens[i]
 		ti, ok := r.tInfo[taddr]
 		if !ok {
 			return nil, ErrEmpty
@@ -240,14 +242,14 @@ func (r *roleMgr) GetBalance(caller utils.Address, index uint64) ([]*big.Int, er
 		val := new(big.Int).Set(ti.rewardAccum)
 		bal := getBalance(taddr, r.local)
 		bal.Sub(bal, ti.lastRewardSupply)
-		if bal.Cmp(zero) > 0 && r.totalPledge.Cmp(zero) > 0 {
-			bal.Div(bal, r.totalPledge)
+		if bal.Cmp(zero) > 0 {
+			bal.Div(bal, totalPledge)
 			val.Add(val, bal)
 		}
 		val.Sub(val, bi.rewardAccum[i])
-		val.Mul(val, bi.amount)
+		val.Mul(val, amount)
 		val.Add(val, bi.rewards[i])
-		res[i+1] = val
+		res[i] = val
 	}
 
 	return res, nil
@@ -266,8 +268,16 @@ func (r *roleMgr) Pledge(caller utils.Address, index uint64, money *big.Int, sig
 		return err
 	}
 
+	t0 := r.tInfo[r.tokens[0]]
+	totalPledge := new(big.Int).Set(t0.lastRewardSupply)
+	amount := new(big.Int)
+	if len(bi.rewards) > 0 {
+		amount.Set(bi.rewards[0])
+	}
+
 	// 更新token acc，结算奖励
-	for i, taddr := range r.tokens[1:] {
+	for i, taddr := range r.tokens {
+		// update tokenInfo
 		ti, ok := r.tInfo[taddr]
 		if !ok {
 			return ErrEmpty
@@ -275,130 +285,98 @@ func (r *roleMgr) Pledge(caller utils.Address, index uint64, money *big.Int, sig
 
 		bal := getBalance(taddr, r.local)
 
-		ti.update(bal, r.totalPledge)
+		tv := new(big.Int).Sub(bal, ti.lastRewardSupply)
+		if tv.Cmp(zero) > 0 && totalPledge.Cmp(zero) > 0 {
+			tv.Div(tv, totalPledge)
+			ti.rewardAccum.Add(ti.rewardAccum, tv)
+		}
+
+		ti.lastRewardSupply = bal // update to lastest
+
+		// update
+		if len(bi.rewardAccum) <= i {
+			bi.rewardAccum = append(bi.rewardAccum, new(big.Int))
+			bi.rewards = append(bi.rewards, new(big.Int))
+		}
+
+		res := new(big.Int).Sub(ti.rewardAccum, bi.rewardAccum[i])
+		res.Mul(res, amount)
+		bi.rewards[i].Add(bi.rewards[i], res)                // 添加奖励
+		bi.rewardAccum[i] = new(big.Int).Set(ti.rewardAccum) // 更新acc
+	}
+
+	// update value
+	addr := r.addrs[bi.index]
+	err = sendBalanceFrom(r.tokens[0], r.local, addr, r.local, money)
+	if err != nil {
+		return err
+	}
+	bi.rewards[0].Add(bi.rewards[0], money)
+	t0.lastRewardSupply.Add(t0.lastRewardSupply, money)
+	return nil
+}
+
+func (r *roleMgr) Withdraw(caller utils.Address, index uint64, tokenIndex uint32, money *big.Int) error {
+	bi, _, err := r.GetInfoByIndex(caller, index)
+	if err != nil {
+		return err
+	}
+
+	// update
+	t0 := r.tInfo[r.tokens[0]]
+	totalPledge := new(big.Int).Set(t0.lastRewardSupply)
+	amount := new(big.Int).Set(bi.rewards[0])
+
+	// update token
+	for i, taddr := range r.tokens {
+		ti, ok := r.tInfo[taddr]
+		if !ok {
+			return ErrEmpty
+		}
+
+		bal := getBalance(taddr, r.local)
+
+		tv := new(big.Int).Sub(bal, ti.lastRewardSupply)
+		if tv.Cmp(zero) > 0 && totalPledge.Cmp(zero) > 0 {
+			tv.Div(tv, totalPledge)
+			ti.rewardAccum.Add(ti.rewardAccum, tv)
+		}
+
+		ti.lastRewardSupply = bal // update to lastest
 
 		if len(bi.rewardAccum) <= i {
 			bi.rewardAccum = append(bi.rewardAccum, new(big.Int))
 			bi.rewards = append(bi.rewards, new(big.Int))
 		}
 
-		res := new(big.Int).Set(ti.rewardAccum)
-		res.Sub(res, bi.rewardAccum[i])
-		res.Mul(res, bi.amount)
-		bi.rewards[i].Add(bi.rewards[i], res) // 添加奖励
-
+		res := new(big.Int).Sub(ti.rewardAccum, bi.rewardAccum[i])
+		res.Mul(res, amount)
+		bi.rewards[i].Add(bi.rewards[i], res)                // 添加奖励
 		bi.rewardAccum[i] = new(big.Int).Set(ti.rewardAccum) // 更新acc
 	}
 
-	addr := r.addrs[bi.index]
-	err = sendBalance(r.tokens[0], addr, r.local, money)
-	if err != nil {
-		return err
-	}
-	bi.amount.Add(bi.amount, money)
-	r.totalPledge.Add(r.totalPledge, money)
-
-	return nil
-}
-
-func (r *roleMgr) Withdraw(caller utils.Address, index uint64, tokenIndex uint32, money *big.Int) error {
-
-	if tokenIndex > 0 {
-		return r.withdrawToken(caller, index, tokenIndex, money)
-	}
-
-	bi, _, err := r.GetInfoByIndex(caller, index)
-	if err != nil {
-		return err
-	}
-
-	rw := new(big.Int).Set(bi.amount)
-
-	if bi.roleType == roleKeeper {
-		rw.Sub(rw, r.pledgeKeeper)
-	} else if bi.roleType == roleProvider {
-		rw.Sub(rw, r.pledgePro)
+	rw := new(big.Int).Set(bi.rewards[tokenIndex])
+	if tokenIndex == 0 {
+		if bi.roleType == roleKeeper {
+			rw.Sub(rw, r.pledgeKeeper)
+		} else if bi.roleType == roleProvider {
+			rw.Sub(rw, r.pledgePro)
+		}
 	}
 
 	if money.Cmp(zero) > 0 && money.Cmp(rw) < 0 {
 		rw.Set(money)
 	}
 
-	// update token
-	for i, taddr := range r.tokens[1:] {
-		ti, ok := r.tInfo[taddr]
-		if !ok {
-			return ErrEmpty
-		}
-
-		bal := getBalance(taddr, r.local)
-
-		ti.update(bal, r.totalPledge)
-
-		if len(bi.rewardAccum) <= i {
-			bi.rewardAccum = append(bi.rewardAccum, new(big.Int))
-			bi.rewards = append(bi.rewards, new(big.Int))
-		}
-
-		res := new(big.Int).Set(ti.rewardAccum)
-		res.Sub(res, bi.rewardAccum[i])
-		res.Mul(res, bi.amount)
-		bi.rewards[i].Add(bi.rewards[i], res)                // 添加奖励
-		bi.rewardAccum[i] = new(big.Int).Set(ti.rewardAccum) // 更新acc
-	}
-
-	err = sendBalance(r.tokens[0], r.local, r.addrs[bi.index], rw)
-	if err != nil {
-		return err
-	}
-	bi.amount.Sub(bi.amount, rw)
-	r.totalPledge.Sub(r.totalPledge, rw)
-
-	return nil
-}
-
-func (r *roleMgr) withdrawToken(caller utils.Address, index uint64, tokenIndex uint32, money *big.Int) error {
-	bi, _, err := r.GetInfoByIndex(caller, index)
+	tAddr := r.tokens[tokenIndex]
+	err = sendBalance(tAddr, r.local, r.addrs[bi.index], rw)
 	if err != nil {
 		return err
 	}
 
-	taddr, err := r.GetTokenByIndex(caller, tokenIndex)
-	if err != nil {
-		return err
-	}
-
-	ti, ok := r.tInfo[taddr]
-	if !ok {
-		return nil
-	}
-
-	bal := getBalance(taddr, r.local)
-
-	ti.update(bal, r.totalPledge)
-	if uint32(len(bi.rewardAccum)) <= tokenIndex-1 {
-		bi.rewardAccum = append(bi.rewardAccum, new(big.Int))
-		bi.rewards = append(bi.rewards, new(big.Int))
-	}
-
-	res := new(big.Int).Set(ti.rewardAccum)
-	res.Sub(res, bi.rewardAccum[tokenIndex-1])
-	res.Mul(res, bi.amount)
-	bi.rewards[tokenIndex-1].Add(bi.rewards[tokenIndex-1], res)     // 添加奖励
-	bi.rewardAccum[tokenIndex-1] = new(big.Int).Set(ti.rewardAccum) // 更新acc
-
-	val := new(big.Int).Set(bi.rewards[tokenIndex-1])
-
-	if money.Cmp(val) < 0 {
-		res.Set(money)
-	}
-
-	err = sendBalance(taddr, r.local, r.addrs[bi.index], val)
-	if err != nil {
-		return err
-	}
-	bi.rewards[tokenIndex-1].Sub(bi.rewards[tokenIndex-1], val)
-	ti.lastRewardSupply = getBalance(taddr, r.local)
+	ti, _ := r.tInfo[tAddr]
+	ti.lastRewardSupply.Sub(ti.lastRewardSupply, rw)
+	bi.rewards[tokenIndex].Sub(bi.rewards[tokenIndex], rw)
 
 	return nil
 }
@@ -422,7 +400,7 @@ func (r *roleMgr) RegisterKeeper(caller utils.Address, index uint64, blsKey, sig
 		return ErrRoleType
 	}
 
-	if bi.amount.Cmp(r.pledgeKeeper) < 0 {
+	if bi.rewards[0].Cmp(r.pledgeKeeper) < 0 {
 		return ErrBalanceNotEnough
 	}
 
@@ -444,7 +422,7 @@ func (r *roleMgr) RegisterProvider(caller utils.Address, index uint64, signature
 		return ErrRoleType
 	}
 
-	if bi.amount.Cmp(r.pledgePro) < 0 {
+	if bi.rewards[0].Cmp(r.pledgePro) < 0 {
 		return ErrBalanceNotEnough
 	}
 
@@ -498,12 +476,12 @@ func (r *roleMgr) CreateGroup(caller utils.Address, inds []uint64, level uint16,
 		}
 	}
 
+	gIndex := len(r.groups)
+
 	gi := &groupInfo{
 		level:   level,
 		keepers: inds,
 	}
-
-	gIndex := len(r.groups)
 
 	r.groups = append(r.groups, gi)
 
@@ -512,6 +490,13 @@ func (r *roleMgr) CreateGroup(caller utils.Address, inds []uint64, level uint16,
 		ki.isActive = true
 		ki.gIndex = uint64(gIndex)
 	}
+
+	fs, err := NewFsMgr(r.local, r.local, uint64(gIndex))
+	if err != nil {
+		return err
+	}
+
+	gi.fsAddr = fs.GetContractAddress()
 
 	if len(gi.keepers) >= int(level) {
 		gi.isActive = true
@@ -576,6 +561,13 @@ func (r *roleMgr) AddKeeperToGroup(caller utils.Address, index, gIndex uint64, k
 	if len(gi.keepers) >= int(gi.level) {
 		gi.isActive = true
 	}
+
+	fsMgr, err := getFsMgr(gi.fsAddr)
+	if err != nil {
+		return err
+	}
+
+	fsMgr.AddKeeper(r.local, index)
 
 	return nil
 }

@@ -6,8 +6,6 @@ import (
 	"github.com/memoio/go-settlement/utils"
 )
 
-var base = int64(1000000000000000000)
-
 var _ ErcToken = (*ercToken)(nil)
 
 type twoKey struct {
@@ -24,7 +22,7 @@ type ercToken struct {
 }
 
 // NewErcToken create
-func NewErcToken(caller utils.Address) (ErcToken, error) {
+func NewErcToken(caller utils.Address) ErcToken {
 	// verify
 	// get local utils.Address
 	local := utils.GetContractAddress(caller, []byte("ErcToken"))
@@ -34,13 +32,13 @@ func NewErcToken(caller utils.Address) (ErcToken, error) {
 		local:       local,
 		money:       make(map[utils.Address]*big.Int),
 		allowed:     make(map[twoKey]*big.Int),
-		totalSupply: new(big.Int).Mul(big.NewInt(base), big.NewInt(base)),
+		totalSupply: new(big.Int).Mul(big.NewInt(Token), big.NewInt(1e10)),
 	}
 
 	et.money[caller] = new(big.Int).Set(et.totalSupply)
 
 	globalMap[local] = et
-	return et, nil
+	return et
 }
 
 func (e *ercToken) TotalSupply(caller utils.Address) *big.Int {

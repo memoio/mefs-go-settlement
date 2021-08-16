@@ -2,59 +2,18 @@ package contract
 
 import (
 	"math/big"
+	"strconv"
 	"time"
 
 	"github.com/memoio/go-settlement/utils"
+	"github.com/minio/blake2b-simd"
 )
 
 // storeInfo is at some time
 type storeInfo struct {
 	time  uint64   // 什么时刻的状态，start time of each cycle
 	size  uint64   // 在该存储节点上的存储总量，byte
-	price *big.Int // 按周期计费，比如一周期为一个区块?
-}
-
-func newStoreInfo() *storeInfo {
-	return &storeInfo{
-		time:  0,
-		size:  0,
-		price: big.NewInt(1),
-	}
-}
-
-func (si *storeInfo) add(size uint64, sprice *big.Int) error {
-	if si.size > 0 {
-		si.price.Mul(si.price, new(big.Int).SetUint64(si.size))
-	}
-
-	si.price.Add(si.price, sprice)
-
-	si.size += size
-
-	si.price.Div(si.price, new(big.Int).SetUint64(si.size))
-	return nil
-}
-
-func (si *storeInfo) sub(end, size uint64, sprice *big.Int) error {
-	// time.N
-	if time.Now().Unix() < int64(end) {
-		return ErrRes
-	}
-
-	if si.size < size {
-		return ErrRes
-	}
-
-	si.price.Mul(si.price, new(big.Int).SetUint64(si.size))
-
-	si.price.Sub(si.price, sprice)
-
-	si.size -= size
-
-	if si.size > 0 {
-		si.price.Div(si.price, new(big.Int).SetUint64(si.size))
-	}
-	return nil
+	price *big.Int // 按周期计费; per cycle
 }
 
 // channelInfo for user pay read to provider
@@ -70,15 +29,6 @@ type aggOrder struct {
 	subNonce uint64                  // 用于订单到期
 	sInfo    map[uint32]*storeInfo   // 不同代币的支付信息
 	channel  map[uint32]*channelInfo // tokenaddr->channel
-}
-
-func newAggOrder() *aggOrder {
-	return &aggOrder{
-		nonce:    0,
-		subNonce: 0,
-		sInfo:    make(map[uint32]*storeInfo),
-		channel:  make(map[uint32]*channelInfo),
-	}
 }
 
 // fsInfo each user have at most one per group
@@ -100,7 +50,7 @@ type settlement struct {
 	lost    *big.Int // lost due to unable response to chal
 	canPay  *big.Int // 最近一次store/pay时刻，可以支付的金额
 
-	taxPay     *big.Int // pay for group keepers > endPaid+linearPaid
+	taxPay     *big.Int // pay for group keepers >= endPaid+linearPaid
 	endPaid    *big.Int // release when order expire
 	linearPaid *big.Int // release when pay for provider
 }
@@ -120,27 +70,23 @@ func newSettlement() *settlement {
 }
 
 // Add is
-func (s *settlement) add(time, size uint64, sprice, pay, tax *big.Int) {
+func (s *settlement) add(start, size uint64, sprice, pay, tax *big.Int) {
 	// update canPay
 	hp := new(big.Int)
-	if s.time < time {
-		hp.SetUint64(time - s.time)
-		hp.Mul(hp, new(big.Int).SetUint64(s.size))
-		hp.Mul(hp, s.price)
-
-		s.time = time
-	} else if s.time > time {
+	if s.time < start {
+		hp.SetUint64(start - s.time)
+		s.time = start
+	} else if s.time > start {
 		// add
-		hp.SetUint64(s.time - time)
-		hp.Mul(hp, sprice)
+		hp.SetUint64(s.time - start)
 	}
+
+	hp.Mul(hp, s.price)
 	s.canPay.Add(s.canPay, hp)
 
 	// update price and size
-	s.price.Mul(s.price, new(big.Int).SetUint64(s.size))
 	s.price.Add(s.price, sprice)
-	s.size += size
-	s.price.Div(s.price, new(big.Int).SetUint64(s.size))
+	s.size += s.size
 
 	s.maxPay.Add(s.maxPay, pay)
 
@@ -151,27 +97,17 @@ func (s *settlement) add(time, size uint64, sprice, pay, tax *big.Int) {
 // Sub ends
 func (s *settlement) sub(start, end, size uint64, sprice *big.Int) {
 	// update canPay
-	hp := new(big.Int)
+	hp := new(big.Int).SetUint64(end - s.time)
+	hp.Mul(hp, s.price)
+	s.canPay.Add(s.canPay, hp)
+
 	if s.time < end {
-		hp.SetUint64(end - s.time)
-		hp.Mul(hp, new(big.Int).SetUint64(s.size))
-		hp.Mul(hp, s.price)
-		s.canPay.Add(s.canPay, hp)
 		s.time = end
-	} else if s.time > end {
-		// sub
-		hp.SetUint64(s.time - end)
-		hp.Mul(hp, sprice)
-		s.canPay.Sub(s.canPay, hp)
 	}
 
 	// update size and price
-	s.price.Mul(s.price, new(big.Int).SetUint64(s.size))
 	s.price.Sub(s.price, sprice)
 	s.size -= size
-	if s.size > 0 {
-		s.price.Div(s.price, new(big.Int).SetUint64(s.size))
-	}
 }
 
 // Calc ends called by withdraw
@@ -190,7 +126,6 @@ func (s *settlement) calc(pay, lost *big.Int) (*big.Int, error) {
 	ntime := uint64(time.Now().Unix())
 	if s.time < ntime {
 		hp := new(big.Int).SetUint64(ntime - s.time)
-		hp.Mul(hp, new(big.Int).SetUint64(s.size))
 		hp.Mul(hp, s.price)
 		s.canPay.Add(s.canPay, hp)
 		s.time = ntime
@@ -256,7 +191,11 @@ func NewFsMgr(caller, rAddr utils.Address, gIndex uint64) (FsMgr, error) {
 		return nil, err
 	}
 
-	local := utils.GetContractAddress(caller, []byte("FsMgr"))
+	h := blake2b.New256()
+	h.Write([]byte("FsMgr"))
+	h.Write([]byte(strconv.FormatUint(gIndex, 10)))
+
+	local := utils.GetContractAddress(caller, h.Sum(nil))
 	fm := &fsMgr{
 		local:    local,
 		admin:    caller,
@@ -359,6 +298,18 @@ func (f *fsMgr) GetFsInfo(caller utils.Address, user uint64) (uint32, []uint64, 
 	}
 
 	return fi.tokenIndex, fi.providers, nil
+}
+
+func (f *fsMgr) AddKeeper(caller utils.Address, kindex uint64) error {
+	if caller != f.roleAddr {
+		return ErrPermission
+	}
+
+	f.keepers = append(f.keepers, kindex)
+	f.count[kindex] = 1
+	f.totalCount++
+
+	return nil
 }
 
 func (f *fsMgr) CreateFs(caller utils.Address, user uint64, payToken uint32, blsKey, sign []byte) error {
@@ -473,7 +424,7 @@ func (f *fsMgr) Recharge(caller utils.Address, user uint64, tokenIndex uint32, m
 	return nil
 }
 
-func (f *fsMgr) AddOrder(caller utils.Address, user, proIndex, start, end, size, nonce uint64, tokenIndex uint32, sprice *big.Int, sign []byte) error {
+func (f *fsMgr) AddOrder(caller utils.Address, user, proIndex, start, end, size, nonce uint64, tokenIndex uint32, sprice *big.Int, usign, psign []byte, ksigns [][]byte) error {
 	// check params
 	if size <= 0 {
 		return ErrInput
@@ -533,7 +484,12 @@ func (f *fsMgr) AddOrder(caller utils.Address, user, proIndex, start, end, size,
 
 		fi.providers = append(fi.providers, proIndex)
 
-		pi = newAggOrder()
+		pi = &aggOrder{
+			nonce:    0,
+			subNonce: 0,
+			sInfo:    make(map[uint32]*storeInfo),
+			channel:  make(map[uint32]*channelInfo),
+		}
 		fi.ao[proIndex] = pi
 
 		ch := &channelInfo{
@@ -550,7 +506,11 @@ func (f *fsMgr) AddOrder(caller utils.Address, user, proIndex, start, end, size,
 
 	si, ok := pi.sInfo[tokenIndex]
 	if !ok {
-		si = newStoreInfo()
+		si = &storeInfo{
+			time:  0,
+			size:  0,
+			price: big.NewInt(0),
+		}
 		pi.sInfo[tokenIndex] = si
 	}
 
@@ -558,7 +518,9 @@ func (f *fsMgr) AddOrder(caller utils.Address, user, proIndex, start, end, size,
 		return ErrInput
 	}
 
-	si.add(size, sprice)
+	si.price.Add(si.price, sprice)
+
+	si.size += size
 
 	pKey := multiKey{
 		roleIndex:  proIndex,
@@ -591,7 +553,7 @@ func (f *fsMgr) AddOrder(caller utils.Address, user, proIndex, start, end, size,
 	return nil
 }
 
-func (f *fsMgr) SubOrder(caller utils.Address, user, proIndex, start, end, size, nonce uint64, tokenIndex uint32, sprice *big.Int, sign []byte) error {
+func (f *fsMgr) SubOrder(caller utils.Address, user, proIndex, start, end, size, nonce uint64, tokenIndex uint32, sprice *big.Int, usign, psign []byte, ksigns [][]byte) error {
 	// check params
 	if size <= 0 {
 		return ErrInput
@@ -628,10 +590,18 @@ func (f *fsMgr) SubOrder(caller utils.Address, user, proIndex, start, end, size,
 		return ErrEmpty
 	}
 
-	err = si.sub(end, size, sprice)
-	if err != nil {
-		return err
+	// time.N
+	if time.Now().Unix() < int64(end) {
+		return ErrRes
 	}
+
+	if si.size < size {
+		return ErrRes
+	}
+
+	// verify size and price
+	si.price.Sub(si.price, sprice)
+	si.size -= size
 
 	pKey := multiKey{
 		roleIndex:  proIndex,
@@ -775,6 +745,7 @@ func (f *fsMgr) KeeperWithdraw(caller utils.Address, keeper uint64, tokenIndex u
 
 	bal, ok := f.balance[nk]
 	if !ok {
+		bal = big.NewInt(0)
 		f.balance[nk] = big.NewInt(0)
 	}
 

@@ -187,7 +187,7 @@ type RoleMgr interface {
 	GetKeepersByIndex(caller utils.Address, gindex uint64) ([]uint64, error)
 	GetProvidersByIndex(caller utils.Address, gindex uint64) ([]uint64, error)
 
-	GetPledge(caller utils.Address) (*big.Int, *big.Int, *big.Int)
+	GetPledge(caller utils.Address) (*big.Int, *big.Int, []*big.Int)
 	GetAllTokens(caller utils.Address) []utils.Address
 	GetAllAddrs(caller utils.Address) []utils.Address
 	GetAllGroups(caller utils.Address) []*groupInfo
@@ -203,14 +203,17 @@ type RoleMgr interface {
 
 // FsMgr manage, create by admin
 type FsMgr interface {
+	// by roleMgr contract
+	AddKeeper(caller utils.Address, kindex uint64) error
+
 	// by user
 	CreateFs(caller utils.Address, user uint64, payToken uint32, blsKey, sign []byte) error
 	// by user
 	Recharge(caller utils.Address, user uint64, tokenIndex uint32, money *big.Int, sign []byte) error
 
 	// by user sign and keepers sign
-	AddOrder(caller utils.Address, user, proIndex, start, end, size, nonce uint64, tokenIndex uint32, sprice *big.Int, sign []byte) error
-	SubOrder(caller utils.Address, user, proIndex, start, end, size, nonce uint64, tokenIndex uint32, sprice *big.Int, sign []byte) error
+	AddOrder(caller utils.Address, user, proIndex, start, end, size, nonce uint64, tokenIndex uint32, sprice *big.Int, usign, psign []byte, ksigns [][]byte) error
+	SubOrder(caller utils.Address, user, proIndex, start, end, size, nonce uint64, tokenIndex uint32, sprice *big.Int, usign, psign []byte, ksigns [][]byte) error
 	ProWithdraw(caller utils.Address, proIndex uint64, tokenIndex uint32, pay, lost *big.Int, sign []byte) error
 	KeeperWithdraw(caller utils.Address, keeperIndex uint64, tokenIndex uint32, amount *big.Int, sign []byte) error
 
