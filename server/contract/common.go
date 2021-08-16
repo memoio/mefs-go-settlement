@@ -138,6 +138,9 @@ type ErcToken interface {
 	Transfer(caller, to utils.Address, value *big.Int) error
 	TransferFrom(caller, from, to utils.Address, value *big.Int) error
 
+	MintToken(caller, target utils.Address, mintedAmount *big.Int) error
+	AirDrop(caller utils.Address, addrs []utils.Address, money *big.Int) error
+
 	// 额外的辅助接口
 	info
 }
@@ -168,8 +171,6 @@ type RoleMgr interface {
 
 	// 创建组，by admin
 	CreateGroup(caller utils.Address, inds []uint64, level uint16, asign []byte) error
-	// 设置组的fs contract地址
-	SetFsAddrForGroup(caller utils.Address, fAddr utils.Address, asign []byte) error
 	// 向组中添加keeper，by keeper and admin
 	AddKeeperToGroup(caller utils.Address, index, gIndex uint64, ksign, asign []byte) error
 	// 向组中添加provider
@@ -191,6 +192,8 @@ type RoleMgr interface {
 	GetAllTokens(caller utils.Address) []utils.Address
 	GetAllAddrs(caller utils.Address) []utils.Address
 	GetAllGroups(caller utils.Address) []*groupInfo
+
+	GetFoundation() utils.Address
 
 	info
 	// stop service? not allowed

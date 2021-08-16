@@ -154,9 +154,10 @@ type multiKey struct {
 var _ FsMgr = (*fsMgr)(nil)
 
 type fsMgr struct {
-	local    utils.Address // contract of this mgr
-	admin    utils.Address // owner
-	roleAddr utils.Address // address of roleMgr
+	local      utils.Address // contract of this mgr
+	admin      utils.Address // owner
+	roleAddr   utils.Address // address of roleMgr
+	foundation utils.Address // foundation address
 
 	taxRate int    // %5 for group, 4% linear and 1% at end;
 	gIndex  uint64 // belongs to which group?
@@ -180,7 +181,7 @@ type fsMgr struct {
 }
 
 // NewFsMgr creates an instance
-func NewFsMgr(caller, rAddr utils.Address, gIndex uint64) (FsMgr, error) {
+func NewFsMgr(caller, rAddr, founder utils.Address, gIndex uint64) (FsMgr, error) {
 	rm, err := getRoleMgr(rAddr)
 	if err != nil {
 		return nil, err
@@ -535,7 +536,7 @@ func (f *fsMgr) AddOrder(caller utils.Address, user, proIndex, start, end, size,
 
 	se.add(start, size, sprice, pay, tax)
 
-	f.balance[uKey].Sub(f.balance[uKey], payAndTax)
+	bal.Sub(bal, payAndTax)
 	pi.nonce++
 
 	ind, err := rm.GetIndex(f.local, caller)
@@ -660,18 +661,21 @@ func (f *fsMgr) ProWithdraw(caller utils.Address, proIndex uint64, tokenIndex ui
 		return err
 	}
 
+	// linear pay to keepers
+	lpay := new(big.Int).Div(se.hasPaid, big.NewInt(100))
+	lpay.Mul(lpay, big.NewInt(4))
+	if lpay.Cmp(se.linearPaid) > 0 {
+		lpay.Sub(lpay, se.linearPaid)
+		f.addToGroup(tokenIndex, lpay) // 交管理费
+		se.linearPaid.Add(se.linearPaid, lpay)
+	}
+
 	pb, ok := f.balance[pKey]
 	if ok {
 		thisPay.Add(thisPay, pb)
-	}
-
-	// linear pay to keepers
-	lpay := new(big.Int).Mul(se.hasPaid, big.NewInt(4))
-	lpay.Div(lpay, big.NewInt(4))
-	if lpay.Cmp(se.linearPaid) > 0 {
-		lpay.Sub(lpay, se.linearPaid)
-		f.addToGroup(tokenIndex, lpay)
-		se.linearPaid.Add(se.linearPaid, lpay)
+	} else {
+		pb = new(big.Int).Set(thisPay)
+		f.balance[pKey] = pb
 	}
 
 	// get instance by address
@@ -694,6 +698,8 @@ func (f *fsMgr) ProWithdraw(caller utils.Address, proIndex uint64, tokenIndex ui
 	if err != nil {
 		return err
 	}
+
+	pb.Sub(pb, thisPay)
 
 	return nil
 }

@@ -45,7 +45,7 @@ func (n *Node) CreateErcToken(uid uuid.UUID, sig []byte, caller utils.Address) (
 	return et.GetContractAddress(), nil
 }
 
-func (n *Node) CreateRoleMgr(uid uuid.UUID, sig []byte, caller, token utils.Address) (utils.Address, error) {
+func (n *Node) CreateRoleMgr(uid uuid.UUID, sig []byte, caller, founder, token utils.Address) (utils.Address, error) {
 	msg := blake2b.Sum256(uid[:])
 	ok := utils.Verify(caller, msg[:], sig)
 	if !ok {
@@ -55,7 +55,7 @@ func (n *Node) CreateRoleMgr(uid uuid.UUID, sig []byte, caller, token utils.Addr
 	kposit := new(big.Int).Mul(new(big.Int).SetUint64(contract.KeeperDeposit), new(big.Int).SetUint64(contract.Token))
 	pposit := new(big.Int).Mul(new(big.Int).SetUint64(contract.ProviderDeposit), new(big.Int).SetUint64(contract.Token))
 
-	rm := contract.NewRoleMgr(caller, token, kposit, pposit)
+	rm := contract.NewRoleMgr(caller, founder, token, kposit, pposit)
 
 	n.roleMap[rm.GetContractAddress()] = rm
 
@@ -71,7 +71,7 @@ func (n *Node) CreateFsMgr(uid uuid.UUID, sig []byte, caller, rAddr utils.Addres
 		return utils.NilAddress, ErrRes
 	}
 
-	fm, err := contract.NewFsMgr(caller, rAddr, gIndex)
+	fm, err := contract.NewFsMgr(caller, caller, rAddr, gIndex)
 	if err != nil {
 		return utils.NilAddress, err
 	}

@@ -83,7 +83,7 @@ func testCreateRoleMgr(t *testing.T, tAddr utils.Address) utils.Address {
 		t.Fatal(err)
 	}
 
-	rm := NewRoleMgr(adminAddr, et.GetContractAddress(), big.NewInt(123450), big.NewInt(12345))
+	rm := NewRoleMgr(adminAddr, adminAddr, et.GetContractAddress(), big.NewInt(123450), big.NewInt(12345))
 
 	return rm.GetContractAddress()
 }
@@ -345,33 +345,12 @@ func testCreateFsMgr(t *testing.T, rAddr utils.Address, gIndex uint64) utils.Add
 
 	adminAddr := utils.ToAddress(adminKey.PubKey)
 
-	fm, err := NewFsMgr(adminAddr, rAddr, gIndex)
+	fm, err := NewFsMgr(adminAddr, adminAddr, rAddr, gIndex)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	return fm.GetContractAddress()
-}
-
-func testSetFsAddr(t *testing.T, rAddr, fsAddr utils.Address, gIndex uint64) {
-	rm, err := getRoleMgr(rAddr)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	err = rm.SetFsAddrForGroup(rm.GetOwnerAddress(), fsAddr, nil)
-	if err == nil {
-		t.Fatal("should fail for set fs")
-	}
-
-	gi, err := rm.GetGroupInfoByIndex(rAddr, gIndex)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if gi.fsAddr == fsAddr {
-		t.Fatal("set fs addr fails")
-	}
 }
 
 func testCreateUser(t *testing.T, rAddr utils.Address, gIndex uint64) uint64 {

@@ -84,3 +84,10 @@ admin创建RoleMgr合约
 
 + 在group对应的FsMgr中CreateFs并在RoleMgr中注册
 
+
+## todo
+
++ 分润
++ 增发
++ 修复
+

@@ -43,8 +43,9 @@ type groupInfo struct {
 var _ RoleMgr = (*roleMgr)(nil)
 
 type roleMgr struct {
-	local utils.Address // contract of this mgr
-	admin utils.Address // owner
+	local      utils.Address // contract of this mgr
+	admin      utils.Address // owner
+	foundation utils.Address // foundation address
 
 	addrs []utils.Address // all
 	info  map[utils.Address]*baseInfo
@@ -61,13 +62,14 @@ type roleMgr struct {
 }
 
 // NewRoleMgr can be admin by mutiple signatures
-func NewRoleMgr(caller, primaryToken utils.Address, kPledge, pPledge *big.Int) RoleMgr {
+func NewRoleMgr(caller, foundation, primaryToken utils.Address, kPledge, pPledge *big.Int) RoleMgr {
 	// generate local utils.Address from
 	local := utils.GetContractAddress(caller, []byte("RoleMgr"))
 
 	rm := &roleMgr{
-		admin: caller,
-		local: local,
+		admin:      caller,
+		local:      local,
+		foundation: foundation,
 
 		addrs:  make([]utils.Address, 0, 128),
 		info:   make(map[utils.Address]*baseInfo),
@@ -99,6 +101,10 @@ func (r *roleMgr) GetContractAddress() utils.Address {
 
 func (r *roleMgr) GetOwnerAddress() utils.Address {
 	return r.admin
+}
+
+func (r *roleMgr) GetFoundation() utils.Address {
+	return r.foundation
 }
 
 func (r *roleMgr) GetIndex(caller, addr utils.Address) (uint64, error) {
@@ -374,7 +380,7 @@ func (r *roleMgr) Withdraw(caller utils.Address, index uint64, tokenIndex uint32
 		return err
 	}
 
-	ti, _ := r.tInfo[tAddr]
+	ti := r.tInfo[tAddr]
 	ti.lastRewardSupply.Sub(ti.lastRewardSupply, rw)
 	bi.rewards[tokenIndex].Sub(bi.rewards[tokenIndex], rw)
 
@@ -491,7 +497,7 @@ func (r *roleMgr) CreateGroup(caller utils.Address, inds []uint64, level uint16,
 		ki.gIndex = uint64(gIndex)
 	}
 
-	fs, err := NewFsMgr(r.local, r.local, uint64(gIndex))
+	fs, err := NewFsMgr(r.local, r.local, r.foundation, uint64(gIndex))
 	if err != nil {
 		return err
 	}
@@ -501,30 +507,6 @@ func (r *roleMgr) CreateGroup(caller utils.Address, inds []uint64, level uint16,
 	if len(gi.keepers) >= int(level) {
 		gi.isActive = true
 	}
-
-	return nil
-}
-
-func (r *roleMgr) SetFsAddrForGroup(caller utils.Address, fAddr utils.Address, asign []byte) error {
-	fm, err := getFsMgr(fAddr)
-	if err != nil {
-		return err
-	}
-
-	gIndex := fm.GetInfo(r.local)
-
-	if gIndex >= uint64(len(r.groups)) {
-		return ErrInput
-	}
-
-	gi := r.groups[gIndex]
-	//verify r.groups[gIndex].fsAddr is not set
-	if gi.fsAddr != utils.NilAddress {
-		return ErrExist
-	}
-
-	// need verify faddr.gindex?
-	gi.fsAddr = fAddr
 
 	return nil
 }
@@ -648,28 +630,4 @@ func (r *roleMgr) GetGroupByIndex(caller utils.Address, index uint64) (uint64, e
 	}
 
 	return 0, ErrRes
-}
-
-func getAddressByIndex(rAddr, caller utils.Address, index uint64) (utils.Address, error) {
-	ri, ok := globalMap[rAddr]
-	if ok {
-		r, ok := ri.(RoleMgr)
-		if ok {
-			return r.GetAddressByIndex(caller, index)
-		}
-	}
-
-	return utils.NilAddress, ErrRes
-}
-
-func getTokenByIndex(rAddr, caller utils.Address, index uint32) (utils.Address, error) {
-	ri, ok := globalMap[rAddr]
-	if ok {
-		r, ok := ri.(RoleMgr)
-		if ok {
-			return r.GetTokenByIndex(caller, index)
-		}
-	}
-
-	return utils.NilAddress, ErrRes
 }

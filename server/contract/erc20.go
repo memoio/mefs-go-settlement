@@ -155,6 +155,38 @@ func (e *ercToken) TransferFrom(caller, from, to utils.Address, value *big.Int) 
 	return nil
 }
 
+// 增发
+func (e *ercToken) MintToken(caller, target utils.Address, mintedAmount *big.Int) error {
+	if caller != e.admin {
+		return ErrPermission
+	}
+
+	bal, ok := e.money[target]
+	if ok {
+		bal.Add(bal, mintedAmount)
+	} else {
+		bal = new(big.Int).Set(mintedAmount)
+		e.money[target] = bal
+	}
+
+	e.totalSupply.Add(e.totalSupply, mintedAmount)
+
+	return nil
+}
+
+// 空投
+func (e *ercToken) AirDrop(caller utils.Address, addrs []utils.Address, money *big.Int) error {
+	if caller != e.admin {
+		return ErrPermission
+	}
+
+	for _, addr := range addrs {
+		e.Transfer(e.admin, addr, money)
+	}
+
+	return nil
+}
+
 func (e *ercToken) GetContractAddress() utils.Address {
 	return e.local
 }
