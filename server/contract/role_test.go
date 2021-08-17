@@ -139,7 +139,7 @@ func testPledge(t *testing.T, rAddr utils.Address, amount *big.Int) uint64 {
 	}
 
 	userAddr := utils.ToAddress(userkey.PubKey)
-	err = pt.Transfer(pt.GetOwnerAddress(), userAddr, big.NewInt(5000000))
+	err = pt.Transfer(pt.GetOwnerAddress(), userAddr, amount)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -345,7 +345,7 @@ func testCreateFsMgr(t *testing.T, rAddr utils.Address, gIndex uint64) utils.Add
 
 	adminAddr := utils.ToAddress(adminKey.PubKey)
 
-	fm, err := NewFsMgr(adminAddr, adminAddr, rAddr, gIndex)
+	fm, err := NewFsMgr(adminAddr, rAddr, gIndex)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -408,30 +408,16 @@ func testCreateUser(t *testing.T, rAddr utils.Address, gIndex uint64) uint64 {
 		t.Fatal(err)
 	}
 
-	gi, err := rm.GetGroupInfoByIndex(userAddr, gIndex)
+	et.Approve(userAddr, rm.GetContractAddress(), big.NewInt(20000000000))
+
+	err = rm.Pledge(userAddr, ui.index, big.NewInt(20000000000), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	fm, err := getFsMgr(gi.fsAddr)
+	err = rm.RegisterUser(userAddr, ui.index, 0, 0, nil, nil)
 	if err != nil {
 		t.Fatal(err)
-	}
-
-	err = fm.CreateFs(userAddr, ui.index, 1, nil, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	et.Approve(userAddr, fm.GetContractAddress(), big.NewInt(20000000000))
-	err = fm.Recharge(userAddr, ui.index, 1, big.NewInt(20000000000), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	bal, _, _ := fm.GetBalance(userAddr, ui.index, 1)
-	if bal.Cmp(big.NewInt(20000000000)) != 0 {
-		t.Fatal("user recharge fails")
 	}
 
 	ui, err = rm.GetInfo(userAddr, userAddr)
@@ -446,7 +432,7 @@ func testCreateUser(t *testing.T, rAddr utils.Address, gIndex uint64) uint64 {
 	return ui.index
 }
 
-func testAddOrder(t *testing.T, rAddr, fsAddr utils.Address, kIndex, userIndex, proIndex, start, end, size, nonce uint64) {
+func testAddOrder(t *testing.T, rAddr utils.Address, kIndex, userIndex, proIndex, start, end, size, nonce uint64) {
 	rm, err := getRoleMgr(rAddr)
 	if err != nil {
 		t.Fatal(err)
@@ -454,25 +440,13 @@ func testAddOrder(t *testing.T, rAddr, fsAddr utils.Address, kIndex, userIndex, 
 
 	kAddr, _ := rm.GetAddressByIndex(rm.GetOwnerAddress(), kIndex)
 
-	fm, err := getFsMgr(fsAddr)
+	err = rm.AddOrder(kAddr, userIndex, proIndex, start, end, size, nonce, 1, big.NewInt(600000), nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	bal, _, _ := fm.GetBalance(kAddr, userIndex, 1)
-	_, pbal, _ := fm.GetBalance(kAddr, proIndex, 1)
-	t.Log("before:", bal, pbal)
-	err = fm.AddOrder(kAddr, userIndex, proIndex, start, end, size, nonce, 1, big.NewInt(600000), nil, nil, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	bal, _, _ = fm.GetBalance(kAddr, userIndex, 1)
-	_, pbal, _ = fm.GetBalance(kAddr, proIndex, 1)
-	t.Log("after:", bal, pbal)
 }
 
-func testSubOrder(t *testing.T, rAddr, fsAddr utils.Address, kIndex, userIndex, proIndex, start, end, size, nonce uint64) {
+func testSubOrder(t *testing.T, rAddr utils.Address, kIndex, userIndex, proIndex, start, end, size, nonce uint64) {
 	rm, err := getRoleMgr(rAddr)
 	if err != nil {
 		t.Fatal(err)
@@ -480,104 +454,18 @@ func testSubOrder(t *testing.T, rAddr, fsAddr utils.Address, kIndex, userIndex, 
 
 	kAddr, _ := rm.GetAddressByIndex(rm.GetOwnerAddress(), kIndex)
 
-	fm, err := getFsMgr(fsAddr)
+	err = rm.SubOrder(kAddr, userIndex, proIndex, start, end, size, nonce, 1, big.NewInt(600000), nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
-	}
-
-	bal, _, _ := fm.GetBalance(kAddr, userIndex, 1)
-	_, pbal, _ := fm.GetBalance(kAddr, proIndex, 1)
-	avail, _, _ := fm.GetBalance(kAddr, kIndex, 1)
-	t.Log("before:", bal, pbal, avail)
-	err = fm.SubOrder(kAddr, userIndex, proIndex, start, end, size, nonce, 1, big.NewInt(600000), nil, nil, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	bal, _, _ = fm.GetBalance(kAddr, userIndex, 1)
-	_, pbal, _ = fm.GetBalance(kAddr, proIndex, 1)
-	avail, _, _ = fm.GetBalance(kAddr, kIndex, 1)
-	t.Log("after:", bal, pbal, avail)
-
-}
-
-func testProWithdraw(t *testing.T, rAddr, fsAddr utils.Address, proIndex uint64, amount *big.Int) {
-	rm, err := getRoleMgr(rAddr)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	proAddr, err := rm.GetAddressByIndex(rAddr, proIndex)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	gIndex, err := rm.GetGroupByIndex(proAddr, proIndex)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	ks, err := rm.GetKeepersByIndex(proAddr, gIndex)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	fm, err := getFsMgr(fsAddr)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	_, lock, paid := fm.GetBalance(proAddr, proIndex, 1)
-	t.Log("before wd:", lock, paid)
-
-	for _, keeper := range ks {
-		avail, lock, _ := fm.GetBalance(proAddr, keeper, 1)
-		t.Log(keeper, avail, lock)
-	}
-	err = fm.ProWithdraw(proAddr, proIndex, 1, amount, big.NewInt(0), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	_, lock, paid = fm.GetBalance(proAddr, proIndex, 1)
-	t.Log("after wd:", lock, paid)
-	for _, keeper := range ks {
-		avail, lock, _ := fm.GetBalance(proAddr, keeper, 1)
-		t.Log(keeper, avail, lock)
 	}
 }
 
-func testKeeperWithdraw(t *testing.T, rAddr, fsAddr utils.Address, kIndex uint64, amount *big.Int) {
-	rm, err := getRoleMgr(rAddr)
-	if err != nil {
-		t.Fatal(err)
-	}
+func testProWithdraw(t *testing.T, rAddr utils.Address, proIndex uint64, amount *big.Int) {
 
-	kAddr, err := rm.GetAddressByIndex(rAddr, kIndex)
-	if err != nil {
-		t.Fatal(err)
-	}
+}
 
-	tAddr, err := rm.GetTokenByIndex(rAddr, 1)
-	if err != nil {
-		t.Fatal(err)
-	}
+func testKeeperWithdraw(t *testing.T, rAddr utils.Address, kIndex uint64, amount *big.Int) {
 
-	fm, err := getFsMgr(fsAddr)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	avail, _, _ := fm.GetBalance(kAddr, kIndex, 1)
-	t.Log("before wd:", avail, getBalance(tAddr, kAddr))
-
-	err = fm.KeeperWithdraw(kAddr, kIndex, 1, amount, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	avail, _, _ = fm.GetBalance(kAddr, kIndex, 1)
-	t.Log("after wd:", avail, getBalance(tAddr, kAddr))
 }
 
 func TestRole(t *testing.T) {
@@ -614,32 +502,14 @@ func TestRole(t *testing.T) {
 
 	uIndex := testCreateUser(t, rAddr, gIndex)
 
-	rm, err := getRoleMgr(rAddr)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	gi, err := rm.GetGroupInfoByIndex(rAddr, gIndex)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	fAddr := gi.fsAddr
-
 	nt := uint64(time.Now().Unix())
 
-	testAddOrder(t, rAddr, fAddr, kIndex, uIndex, pIndex, nt-190, nt+10, 300, 0)
-	testAddOrder(t, rAddr, fAddr, kIndex, uIndex, pIndex, nt-80, nt+20, 200, 1)
-
-	testProWithdraw(t, rAddr, fAddr, pIndex, big.NewInt(2000))
-	testProWithdraw(t, rAddr, fAddr, pIndex, big.NewInt(2000))
-	testProWithdraw(t, rAddr, fAddr, pIndex, big.NewInt(9000))
+	testAddOrder(t, rAddr, kIndex, uIndex, pIndex, nt-190, nt+10, 300, 0)
+	testAddOrder(t, rAddr, kIndex, uIndex, pIndex, nt-80, nt+20, 200, 1)
 
 	time.Sleep(11 * time.Second)
-	testSubOrder(t, rAddr, fAddr, kIndex, uIndex, pIndex, nt-190, nt+10, 300, 0)
+	testSubOrder(t, rAddr, kIndex, uIndex, pIndex, nt-190, nt+10, 300, 0)
 	time.Sleep(10 * time.Second)
-	testSubOrder(t, rAddr, fAddr, kIndex, uIndex, pIndex, nt-80, nt+20, 200, 1)
-
-	testKeeperWithdraw(t, rAddr, fAddr, kIndex, big.NewInt(1000))
+	testSubOrder(t, rAddr, kIndex, uIndex, pIndex, nt-80, nt+20, 200, 1)
 	t.Fatal("end")
 }

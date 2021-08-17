@@ -71,7 +71,7 @@ func (n *Node) CreateFsMgr(uid uuid.UUID, sig []byte, caller, rAddr utils.Addres
 		return utils.NilAddress, ErrRes
 	}
 
-	fm, err := contract.NewFsMgr(caller, caller, rAddr, gIndex)
+	fm, err := contract.NewFsMgr(caller, rAddr, gIndex)
 	if err != nil {
 		return utils.NilAddress, err
 	}

@@ -174,6 +174,27 @@ func (e *ercToken) MintToken(caller, target utils.Address, mintedAmount *big.Int
 	return nil
 }
 
+// 销毁
+func (e *ercToken) Burn(caller utils.Address, burnAmount *big.Int) error {
+	if caller != e.admin {
+		return ErrPermission
+	}
+
+	bal, ok := e.money[caller]
+	if !ok {
+		return ErrBalanceNotEnough
+	}
+
+	if bal.Cmp(burnAmount) < 0 {
+		return ErrBalanceNotEnough
+	}
+
+	bal.Sub(bal, burnAmount)
+
+	e.totalSupply.Sub(e.totalSupply, burnAmount)
+	return nil
+}
+
 // 空投
 func (e *ercToken) AirDrop(caller utils.Address, addrs []utils.Address, money *big.Int) error {
 	if caller != e.admin {
