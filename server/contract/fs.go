@@ -3,7 +3,6 @@ package contract
 import (
 	"math/big"
 	"strconv"
-	"time"
 
 	"github.com/memoio/go-settlement/utils"
 	"github.com/minio/blake2b-simd"
@@ -50,7 +49,7 @@ type settlement struct {
 	lost    *big.Int // lost due to unable response to chal
 	canPay  *big.Int // 最近一次store/pay时刻，可以支付的金额
 
-	taxPay     *big.Int // pay for group keepers >= endPaid+linearPaid
+	managePay  *big.Int // pay for group keepers >= endPaid+linearPaid
 	endPaid    *big.Int // release when order expire
 	linearPaid *big.Int // release when pay for provider
 }
@@ -63,14 +62,14 @@ func newSettlement() *settlement {
 		canPay:  big.NewInt(0),
 		price:   big.NewInt(1),
 
-		taxPay:     big.NewInt(0),
+		managePay:  big.NewInt(0),
 		linearPaid: big.NewInt(0),
 		endPaid:    big.NewInt(0),
 	}
 }
 
 // Add is
-func (s *settlement) add(start, size uint64, sprice, pay, tax *big.Int) {
+func (s *settlement) add(start, size uint64, sprice, pay, manage *big.Int) {
 	// update canPay
 	hp := new(big.Int)
 	if s.time < start {
@@ -91,7 +90,7 @@ func (s *settlement) add(start, size uint64, sprice, pay, tax *big.Int) {
 	s.maxPay.Add(s.maxPay, pay)
 
 	// pay to keeper, 5% of pay
-	s.taxPay.Add(s.taxPay, tax)
+	s.managePay.Add(s.managePay, manage)
 }
 
 // Sub ends
@@ -123,7 +122,7 @@ func (s *settlement) calc(pay, lost *big.Int) (*big.Int, error) {
 	}
 	s.lost.Set(lost)
 
-	ntime := uint64(time.Now().Unix())
+	ntime := GetTime()
 	if s.time < ntime {
 		hp := new(big.Int).SetUint64(ntime - s.time)
 		hp.Mul(hp, s.price)
@@ -154,17 +153,25 @@ type multiKey struct {
 var _ FsMgr = (*fsMgr)(nil)
 
 type fsMgr struct {
-	local    utils.Address // contract of this mgr
-	admin    utils.Address // owner
-	roleAddr utils.Address // address of roleMgr
+	local utils.Address // contract of this mgr
+	owner utils.Address // owner
 
-	taxRate int    // %5 for group, 4% linear and 1% at end;
-	gIndex  uint64 // belongs to which group?
+	manageRate int    //  %4 for group, 3% linear and 1% at end;
+	taxRate    int    //  %1 for foundation;
+	gIndex     uint64 // belongs to which group?
+	foundation uint64
 
 	balance map[multiKey]*big.Int // available
 
 	users []uint64
 	fs    map[uint64]*fsInfo
+
+	keepers    []uint64
+	period     uint64
+	lastTime   uint64              // 上次分润时间
+	tAcc       map[uint32]*big.Int // 每次分润后归0
+	totalCount uint64
+	count      map[uint64]uint64 //   记录keeper触发的次数，用于分润
 
 	providers []uint64
 	proInfo   map[multiKey]*settlement
@@ -172,28 +179,51 @@ type fsMgr struct {
 	tokens []uint32 // user使用某token时候加进来
 }
 
-// NewFsMgr creates an instance
-func NewFsMgr(caller, rAddr utils.Address, gIndex uint64) (FsMgr, error) {
+// NewFsMgr creates an instance; caller == rAddr?
+func NewFsMgr(caller utils.Address, founder, gIndex uint64) (FsMgr, error) {
+	rm, err := getRoleMgr(caller)
+	if err != nil {
+		return nil, err
+	}
+
+	gi, err := rm.GetGroupInfo(caller, gIndex)
+	if err != nil {
+		return nil, err
+	}
+
 	h := blake2b.New256()
 	h.Write([]byte("FsMgr"))
 	h.Write([]byte(strconv.FormatUint(gIndex, 10)))
 
 	local := utils.GetContractAddress(caller, h.Sum(nil))
 	fm := &fsMgr{
-		local:    local,
-		admin:    caller,
-		roleAddr: rAddr,
-		gIndex:   gIndex,
-		taxRate:  5, // 5% for keeper
-		balance:  make(map[multiKey]*big.Int),
+		local:      local,
+		owner:      caller,
+		foundation: founder,
+		gIndex:     gIndex,
+		manageRate: 4,
+		taxRate:    1, // 5% for keeper
+		balance:    make(map[multiKey]*big.Int),
 
 		users: make([]uint64, 0, 1),
 		fs:    make(map[uint64]*fsInfo),
+
+		keepers:    gi.keepers,
+		period:     10,
+		lastTime:   GetTime(),
+		tAcc:       make(map[uint32]*big.Int),
+		totalCount: 0,
+		count:      make(map[uint64]uint64),
 
 		providers: make([]uint64, 0, 1),
 		proInfo:   make(map[multiKey]*settlement),
 
 		tokens: make([]uint32, 0, 1),
+	}
+
+	for _, kp := range gi.keepers {
+		fm.count[kp] = 1
+		fm.totalCount++
 	}
 
 	globalMap[local] = fm
@@ -206,68 +236,48 @@ func (f *fsMgr) GetContractAddress() utils.Address {
 }
 
 func (f *fsMgr) GetOwnerAddress() utils.Address {
-	return f.admin
+	return f.owner
 }
 
-func (f *fsMgr) GetTokens(caller utils.Address) []uint32 {
-	return f.tokens
-}
-
-func (f *fsMgr) GetBalance(caller utils.Address, index uint64, tIndex uint32) (*big.Int, *big.Int, *big.Int) {
-	res := new(big.Int)
-	lock := new(big.Int)
-	paid := new(big.Int)
-	mk := multiKey{
-		roleIndex:  index,
-		tokenIndex: tIndex,
-	}
-	val, ok := f.balance[mk]
-	if ok {
-		res.Set(val)
+func (f *fsMgr) AddKeeper(caller utils.Address, kindex uint64) error {
+	if caller != f.owner {
+		return ErrPermission
 	}
 
-	se, ok := f.proInfo[mk]
-	if ok {
-		canPay := new(big.Int).Set(se.canPay)
-		nt := uint64(time.Now().Unix())
-		tmp := new(big.Int).SetUint64(nt - se.time)
-		tmp.Mul(tmp, new(big.Int).SetUint64(se.size))
-		tmp.Mul(tmp, se.price)
+	f.keepers = append(f.keepers, kindex)
+	f.count[kindex] = 1
+	f.totalCount++
 
-		canPay.Add(canPay, tmp)
-		hardlimit := new(big.Int).Sub(se.maxPay, se.lost)
-
-		if canPay.Cmp(hardlimit) > 0 {
-			canPay.Set(hardlimit)
-		}
-
-		lock.Sub(canPay, se.hasPaid)
-		paid.Set(se.hasPaid)
-	}
-
-	return res, lock, paid
+	return nil
 }
 
-func (f *fsMgr) GetInfo(caller utils.Address) uint64 {
-	return f.gIndex
-}
-
-func (f *fsMgr) GetFsInfo(caller utils.Address, user uint64) (uint32, []uint64, error) {
+func (f *fsMgr) GetFsInfo(caller utils.Address, user uint64) (*fsInfo, error) {
 	fi, ok := f.fs[user]
 	if !ok {
-		return 0, nil, ErrEmpty
+		return nil, ErrEmpty
 	}
 
-	return fi.tokenIndex, fi.providers, nil
+	return fi, nil
+}
+
+func (f *fsMgr) getFsInfo(user uint64) (*fsInfo, error) {
+	fi, ok := f.fs[user]
+	if !ok {
+		return nil, ErrEmpty
+	}
+
+	if !fi.isActive {
+		return nil, ErrPermission
+	}
+
+	return fi, nil
 }
 
 func (f *fsMgr) CreateFs(caller utils.Address, user uint64, payToken uint32) error {
 	// call by roleMgr
-	if caller != f.roleAddr {
+	if caller != f.owner {
 		return ErrPermission
 	}
-
-	// valid paytoken is valid
 
 	// valid fs is not exist
 	fi, ok := f.fs[user]
@@ -289,34 +299,55 @@ func (f *fsMgr) CreateFs(caller utils.Address, user uint64, payToken uint32) err
 
 	fi.isActive = true
 
+	_, ok = f.tAcc[payToken]
+	if !ok {
+		f.tAcc[payToken] = big.NewInt(0)
+		f.tokens = append(f.tokens, payToken)
+	}
+
 	return nil
 }
 
-func (f *fsMgr) getFsInfo(user uint64) (*fsInfo, error) {
-	fi, ok := f.fs[user]
-	if !ok {
-		return nil, ErrEmpty
-	}
-
-	if !fi.isActive {
-		return nil, ErrPermission
-	}
-
-	return fi, nil
-}
-
-func (f *fsMgr) AddOrder(caller utils.Address, user, proIndex, start, end, size, nonce uint64, tokenIndex uint32, sprice, pay, tax *big.Int, usign, psign []byte, ksigns [][]byte) error {
-	if caller != f.roleAddr {
+func (f *fsMgr) AddOrder(caller utils.Address, kindex, user, proIndex, start, end, size, nonce uint64, tokenIndex uint32, sprice *big.Int, usign, psign []byte, ksigns [][]byte) error {
+	if caller != f.owner {
 		return ErrPermission
 	}
-
-	// verify ksigns
-	// verify usign
-	// verify psign
 
 	// check params
 	if size <= 0 {
 		return ErrInput
+	}
+
+	_, ok := f.tAcc[tokenIndex]
+	if !ok {
+		f.tAcc[tokenIndex] = big.NewInt(0)
+		f.tokens = append(f.tokens, tokenIndex)
+	}
+
+	// verify money is enough
+	uKey := multiKey{
+		roleIndex:  user,
+		tokenIndex: tokenIndex,
+	}
+
+	bal, ok := f.balance[uKey]
+	if !ok {
+		return ErrBalanceNotEnough
+	}
+
+	pay := new(big.Int).SetUint64(end - start)
+	pay.Mul(pay, sprice)
+
+	per := new(big.Int).Div(pay, big.NewInt(100))
+
+	manage := new(big.Int).Mul(per, big.NewInt(int64(f.manageRate)))
+	tax := new(big.Int).Mul(per, big.NewInt(int64(f.taxRate)))
+
+	payAndTax := new(big.Int)
+	payAndTax.Add(pay, tax)
+	payAndTax.Add(pay, manage)
+	if bal.Cmp(payAndTax) < 0 {
+		return ErrBalanceNotEnough
 	}
 
 	fi, err := f.getFsInfo(user)
@@ -378,15 +409,36 @@ func (f *fsMgr) AddOrder(caller utils.Address, user, proIndex, start, end, size,
 		f.proInfo[pKey] = se
 	}
 
-	se.add(start, size, sprice, pay, tax)
+	se.add(start, size, sprice, pay, manage)
 	pi.nonce++
+
+	fKey := multiKey{
+		roleIndex:  f.foundation,
+		tokenIndex: tokenIndex,
+	}
+
+	// add to foundation
+	fbal, ok := f.balance[fKey]
+	if ok {
+		fbal.Add(fbal, tax)
+	} else {
+		fbal = new(big.Int).Set(tax)
+		f.balance[fKey] = fbal
+	}
+
+	cnt, ok := f.count[kindex]
+	if ok {
+		cnt++
+		f.count[kindex] = cnt
+		f.totalCount++
+	}
 
 	return nil
 }
 
-func (f *fsMgr) SubOrder(caller utils.Address, user, proIndex, start, end, size, nonce uint64, tokenIndex uint32, sprice *big.Int, usign, psign []byte, ksigns [][]byte) (*big.Int, error) {
-	if caller != f.roleAddr {
-		return nil, ErrPermission
+func (f *fsMgr) SubOrder(caller utils.Address, kindex, user, proIndex, start, end, size, nonce uint64, tokenIndex uint32, sprice *big.Int, usign, psign []byte, ksigns [][]byte) error {
+	if caller != f.owner {
+		return ErrPermission
 	}
 
 	// verify ksigns
@@ -395,39 +447,39 @@ func (f *fsMgr) SubOrder(caller utils.Address, user, proIndex, start, end, size,
 
 	// check params
 	if size <= 0 {
-		return nil, ErrInput
+		return ErrInput
 	}
 
 	if end <= start {
-		return nil, ErrInput
+		return ErrInput
 	}
 
 	// time.N
-	if time.Now().Unix() < int64(end) {
-		return nil, ErrRes
+	if GetTime() < end {
+		return ErrRes
 	}
 
 	fi, err := f.getFsInfo(user)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	pi, ok := fi.ao[proIndex]
 	if !ok {
-		return nil, ErrEmpty
+		return ErrEmpty
 	}
 
 	if pi.subNonce != nonce {
-		return nil, ErrNonce
+		return ErrNonce
 	}
 
 	si, ok := pi.sInfo[tokenIndex]
 	if !ok {
-		return nil, ErrEmpty
+		return ErrEmpty
 	}
 
 	if si.size < size {
-		return nil, ErrRes
+		return ErrRes
 	}
 
 	// verify size and price
@@ -441,7 +493,7 @@ func (f *fsMgr) SubOrder(caller utils.Address, user, proIndex, start, end, size,
 
 	se, ok := f.proInfo[pKey]
 	if !ok {
-		return nil, ErrEmpty
+		return ErrEmpty
 	}
 
 	se.sub(start, end, size, sprice)
@@ -450,16 +502,192 @@ func (f *fsMgr) SubOrder(caller utils.Address, user, proIndex, start, end, size,
 	endPaid := new(big.Int).Mul(sprice, new(big.Int).SetUint64(end-start))
 	endPaid.Div(endPaid, new(big.Int).SetUint64(100))
 	se.endPaid.Add(se.endPaid, endPaid)
+	ti := f.tAcc[tokenIndex]
+	ti.Add(ti, endPaid)
 
 	// pay to keeper, 4% for linear; due to pro no trigger pay
 	// todo
 
 	pi.subNonce++
 
-	return endPaid, nil
+	cnt, ok := f.count[kindex]
+	if ok {
+		cnt++
+		f.count[kindex] = cnt
+		f.totalCount++
+	}
+
+	return nil
 }
 
-func (f *fsMgr) ProWithdraw(caller utils.Address, proIndex uint64, tokenIndex uint32, pay, lost *big.Int, signs [][]byte) (*big.Int, *big.Int, error) {
+func (f *fsMgr) GetBalance(caller utils.Address, index uint64, tIndex uint32) (*big.Int, *big.Int, *big.Int) {
+	avail := new(big.Int)
+	lock := new(big.Int)
+	paid := new(big.Int)
+	mk := multiKey{
+		roleIndex:  index,
+		tokenIndex: tIndex,
+	}
+	val, ok := f.balance[mk]
+	if ok {
+		avail.Set(val)
+	}
+
+	se, ok := f.proInfo[mk]
+	if ok {
+		canPay := new(big.Int).Set(se.canPay)
+		nt := GetTime()
+		tmp := new(big.Int).SetUint64(nt - se.time)
+		tmp.Mul(tmp, new(big.Int).SetUint64(se.size))
+		tmp.Mul(tmp, se.price)
+
+		canPay.Add(canPay, tmp)
+		hardlimit := new(big.Int).Sub(se.maxPay, se.lost)
+
+		if canPay.Cmp(hardlimit) > 0 {
+			canPay.Set(hardlimit)
+		}
+
+		lock.Sub(canPay, se.hasPaid)
+		paid.Set(se.hasPaid)
+	}
+
+	return avail, lock, paid
+}
+
+// 充值
+func (f *fsMgr) Recharge(caller utils.Address, user uint64, tokenIndex uint32, money *big.Int, sign []byte) error {
+	_, err := f.getFsInfo(user)
+	if err != nil {
+		return err
+	}
+
+	rm, err := getRoleMgr(f.owner)
+	if err != nil {
+		return err
+	}
+
+	tAddr, err := rm.GetTokenAddress(f.local, tokenIndex)
+	if err != nil {
+		return err
+	}
+
+	// add tokenIndex
+	_, ok := f.tAcc[tokenIndex]
+	if !ok {
+		f.tAcc[tokenIndex] = big.NewInt(0)
+		f.tokens = append(f.tokens, tokenIndex)
+	}
+
+	_, uAddr, err := rm.GetInfo(f.local, user)
+	if err != nil {
+		return err
+	}
+
+	err = sendBalanceFrom(tAddr, f.local, uAddr, f.local, new(big.Int).Set(money))
+	if err != nil {
+		return err
+	}
+
+	mk := multiKey{
+		roleIndex:  user,
+		tokenIndex: tokenIndex,
+	}
+
+	bal, ok := f.balance[mk]
+	if ok {
+		bal.Add(bal, money)
+	} else {
+		f.balance[mk] = money
+	}
+
+	return nil
+}
+
+func (f *fsMgr) Withdraw(caller utils.Address, index uint64, tokenIndex uint32, amount *big.Int, sign []byte) error {
+	if amount.Cmp(zero) < 0 {
+		return ErrInput
+	}
+
+	rm, err := getRoleMgr(f.owner)
+	if err != nil {
+		return err
+	}
+
+	ki, addr, err := rm.GetInfo(f.local, index)
+	if err != nil {
+		return err
+	}
+
+	if ki.roleType == roleKeeper {
+		ntime := GetTime()
+		if ntime-f.lastTime > f.period {
+			if f.totalCount <= 0 {
+				return ErrRes
+			}
+
+			for _, tindex := range f.tokens {
+				ti, ok := f.tAcc[tindex]
+				if !ok {
+					return ErrEmpty
+				}
+
+				per := new(big.Int).Div(ti, new(big.Int).SetUint64(f.totalCount))
+				for _, kindex := range f.keepers {
+					kc, ok := f.count[kindex]
+					if ok {
+						pro := new(big.Int).Mul(per, new(big.Int).SetUint64(kc))
+						nk := multiKey{
+							tokenIndex: tindex,
+							roleIndex:  kindex,
+						}
+						bal, ok := f.balance[nk]
+						if ok {
+							bal.Add(bal, pro)
+						} else {
+							f.balance[nk] = pro
+						}
+						ti.Sub(ti, pro)
+					} else {
+						f.count[kindex] = 1
+					}
+				}
+			}
+
+			f.lastTime = ntime
+		}
+		// update count?
+	}
+
+	nk := multiKey{
+		tokenIndex: tokenIndex,
+		roleIndex:  index,
+	}
+
+	bal, ok := f.balance[nk]
+	if !ok {
+		bal = big.NewInt(0)
+		f.balance[nk] = bal
+	}
+
+	if amount.Cmp(zero) == 0 || amount.Cmp(bal) > 0 {
+		amount.Set(bal)
+	}
+
+	tAddr, err := rm.GetTokenAddress(f.local, tokenIndex)
+	if err != nil {
+		return err
+	}
+
+	err = sendBalance(tAddr, f.local, addr, amount)
+	if err != nil {
+		return err
+	}
+	bal.Sub(bal, amount)
+	return nil
+}
+
+func (f *fsMgr) ProWithdraw(caller utils.Address, proIndex uint64, tokenIndex uint32, pay, lost *big.Int, signs [][]byte) error {
 	// verify ksign?
 	pKey := multiKey{
 		roleIndex:  proIndex,
@@ -468,13 +696,13 @@ func (f *fsMgr) ProWithdraw(caller utils.Address, proIndex uint64, tokenIndex ui
 
 	se, ok := f.proInfo[pKey]
 	if !ok {
-		return nil, nil, ErrEmpty
+		return ErrEmpty
 	}
 
 	// pay to provider
 	thisPay, err := se.calc(pay, lost)
 	if err != nil {
-		return nil, nil, err
+		return err
 	}
 
 	// linear pay to keepers
@@ -483,7 +711,40 @@ func (f *fsMgr) ProWithdraw(caller utils.Address, proIndex uint64, tokenIndex ui
 	if lpay.Cmp(se.linearPaid) > 0 {
 		lpay.Sub(lpay, se.linearPaid)
 		se.linearPaid.Add(se.linearPaid, lpay)
+		ti := f.tAcc[tokenIndex]
+		ti.Add(ti, lpay)
 	}
 
-	return thisPay, lpay, nil
+	pb, ok := f.balance[pKey]
+	if ok {
+		thisPay.Add(thisPay, pb)
+	} else {
+		pb = new(big.Int).Set(thisPay)
+		f.balance[pKey] = pb
+	}
+
+	// get instance by address
+	rm, err := getRoleMgr(f.owner)
+	if err != nil {
+		return err
+	}
+
+	_, proAddr, err := rm.GetInfo(f.local, proIndex)
+	if err != nil {
+		return err
+	}
+
+	tAddr, err := rm.GetTokenAddress(f.local, tokenIndex)
+	if err != nil {
+		return err
+	}
+
+	err = sendBalance(tAddr, f.local, proAddr, thisPay)
+	if err != nil {
+		return err
+	}
+
+	pb.Sub(pb, thisPay)
+
+	return nil
 }

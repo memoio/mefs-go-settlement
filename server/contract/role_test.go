@@ -151,7 +151,12 @@ func testPledge(t *testing.T, rAddr utils.Address, amount *big.Int) uint64 {
 		t.Fatal(err)
 	}
 
-	ui, err := rm.GetInfo(userAddr, userAddr)
+	uindex, err := rm.GetIndex(userAddr, userAddr)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ui, _, err := rm.GetInfo(userAddr, uindex)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -160,18 +165,19 @@ func testPledge(t *testing.T, rAddr utils.Address, amount *big.Int) uint64 {
 		t.Fatal("register fails")
 	}
 
-	pt.Approve(userAddr, rm.GetContractAddress(), amount)
+	pt.Approve(userAddr, rm.GetPledgeAddress(userAddr), amount)
 
 	err = rm.Pledge(userAddr, ui.index, amount, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	ui, _, err = rm.GetInfoByIndex(userAddr, ui.index)
+	bal, err := rm.GetBalance(userAddr, ui.index)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ui.rewards[0].Cmp(amount) != 0 {
+
+	if bal[0].Cmp(amount) != 0 {
 		t.Fatal("pledge fail")
 	}
 
@@ -191,7 +197,7 @@ func testWithdraw(t *testing.T, rAddr utils.Address, index uint64, tIndex uint32
 		t.Fatal(err)
 	}
 
-	ui, userAddr, err := rm.GetInfoByIndex(rm.GetOwnerAddress(), index)
+	ui, userAddr, err := rm.GetInfo(rm.GetOwnerAddress(), index)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -217,7 +223,7 @@ func testWithdraw(t *testing.T, rAddr utils.Address, index uint64, tIndex uint32
 	before := et.BalanceOf(userAddr, userAddr)
 	t.Log(index, before)
 
-	err = rm.Withdraw(userAddr, ui.index, tIndex, big.NewInt(0))
+	err = rm.Withdraw(userAddr, ui.index, tIndex, big.NewInt(0), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -301,10 +307,12 @@ func testAddKeeper(t *testing.T, rAddr utils.Address, gIndex uint64) uint64 {
 		t.Fatal(err)
 	}
 
-	ks, err := rm.GetKeepersByIndex(rm.GetOwnerAddress(), gIndex)
+	gi, err := rm.GetGroupInfo(rm.GetOwnerAddress(), gIndex)
 	if err != nil {
 		t.Fatal(err)
 	}
+
+	ks := gi.keepers
 
 	if ks[len(ks)-1] != kindex {
 		t.Fatal("add keeper fails")
@@ -325,32 +333,18 @@ func testAddProvider(t *testing.T, rAddr utils.Address, gIndex uint64) uint64 {
 		t.Fatal(err)
 	}
 
-	ks, err := rm.GetProvidersByIndex(rm.GetOwnerAddress(), gIndex)
+	gi, err := rm.GetGroupInfo(rm.GetOwnerAddress(), gIndex)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if ks[len(ks)-1] != pindex {
+	ps := gi.providers
+
+	if ps[len(ps)-1] != pindex {
 		t.Fatal("add provider fails")
 	}
 
 	return pindex
-}
-
-func testCreateFsMgr(t *testing.T, rAddr utils.Address, gIndex uint64) utils.Address {
-	adminKey, err := utils.GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	adminAddr := utils.ToAddress(adminKey.PubKey)
-
-	fm, err := NewFsMgr(adminAddr, rAddr, gIndex)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	return fm.GetContractAddress()
 }
 
 func testCreateUser(t *testing.T, rAddr utils.Address, gIndex uint64) uint64 {
@@ -379,7 +373,12 @@ func testCreateUser(t *testing.T, rAddr utils.Address, gIndex uint64) uint64 {
 		t.Fatal(err)
 	}
 
-	ui, err := rm.GetInfo(userAddr, userAddr)
+	uindex, err := rm.GetIndex(userAddr, userAddr)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ui, _, err := rm.GetInfo(userAddr, uindex)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -408,9 +407,9 @@ func testCreateUser(t *testing.T, rAddr utils.Address, gIndex uint64) uint64 {
 		t.Fatal(err)
 	}
 
-	et.Approve(userAddr, rm.GetContractAddress(), big.NewInt(20000000000))
+	pt.Approve(userAddr, rm.GetPledgeAddress(userAddr), big.NewInt(5000000))
 
-	err = rm.Pledge(userAddr, ui.index, big.NewInt(20000000000), nil)
+	err = rm.Pledge(userAddr, ui.index, big.NewInt(5000000), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -420,7 +419,7 @@ func testCreateUser(t *testing.T, rAddr utils.Address, gIndex uint64) uint64 {
 		t.Fatal(err)
 	}
 
-	ui, err = rm.GetInfo(userAddr, userAddr)
+	ui, _, err = rm.GetInfo(userAddr, ui.index)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -438,7 +437,12 @@ func testAddOrder(t *testing.T, rAddr utils.Address, kIndex, userIndex, proIndex
 		t.Fatal(err)
 	}
 
-	kAddr, _ := rm.GetAddressByIndex(rm.GetOwnerAddress(), kIndex)
+	_, kAddr, err := rm.GetInfo(rm.GetOwnerAddress(), kIndex)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// approve
 
 	err = rm.AddOrder(kAddr, userIndex, proIndex, start, end, size, nonce, 1, big.NewInt(600000), nil, nil, nil)
 	if err != nil {
@@ -452,7 +456,10 @@ func testSubOrder(t *testing.T, rAddr utils.Address, kIndex, userIndex, proIndex
 		t.Fatal(err)
 	}
 
-	kAddr, _ := rm.GetAddressByIndex(rm.GetOwnerAddress(), kIndex)
+	_, kAddr, err := rm.GetInfo(rm.GetOwnerAddress(), kIndex)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	err = rm.SubOrder(kAddr, userIndex, proIndex, start, end, size, nonce, 1, big.NewInt(600000), nil, nil, nil)
 	if err != nil {

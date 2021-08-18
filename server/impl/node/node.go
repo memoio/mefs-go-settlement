@@ -12,7 +12,6 @@ import (
 type Node struct {
 	ercMap   map[utils.Address]contract.ErcToken
 	roleMap  map[utils.Address]contract.RoleMgr
-	fsMap    map[utils.Address]contract.FsMgr
 	nonceMap map[utils.Address]uint64
 }
 
@@ -20,7 +19,6 @@ func NewNode() *Node {
 	n := &Node{
 		ercMap:   make(map[utils.Address]contract.ErcToken),
 		roleMap:  make(map[utils.Address]contract.RoleMgr),
-		fsMap:    make(map[utils.Address]contract.FsMgr),
 		nonceMap: make(map[utils.Address]uint64),
 	}
 
@@ -62,23 +60,4 @@ func (n *Node) CreateRoleMgr(uid uuid.UUID, sig []byte, caller, founder, token u
 	log.Info("create roleMgr for: ", caller.String())
 
 	return rm.GetContractAddress(), nil
-}
-
-func (n *Node) CreateFsMgr(uid uuid.UUID, sig []byte, caller, rAddr utils.Address, gIndex uint64) (utils.Address, error) {
-	msg := blake2b.Sum256(uid[:])
-	ok := utils.Verify(caller, msg[:], sig)
-	if !ok {
-		return utils.NilAddress, ErrRes
-	}
-
-	fm, err := contract.NewFsMgr(caller, rAddr, gIndex)
-	if err != nil {
-		return utils.NilAddress, err
-	}
-
-	n.fsMap[fm.GetContractAddress()] = fm
-
-	log.Info("create fsMgr for: ", caller.String())
-
-	return fm.GetContractAddress(), nil
 }
