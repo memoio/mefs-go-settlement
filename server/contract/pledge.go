@@ -169,9 +169,9 @@ func (p *pledgeMgr) Pledge(caller utils.Address, index uint64, money *big.Int) e
 		p.amount[mk] = p0
 	}
 
+	amount := new(big.Int).Set(p0.lastReward)
 	if p.totalPledge.Cmp(zero) > 0 {
 		totalPledge := new(big.Int).Set(p.totalPledge)
-		amount := new(big.Int).Set(p0.lastReward)
 
 		// 更新token acc，结算奖励
 		for i, taddr := range p.tokens {
@@ -217,7 +217,8 @@ func (p *pledgeMgr) Pledge(caller utils.Address, index uint64, money *big.Int) e
 	ti := p.tInfo[0]
 	ti.lastReward.Add(ti.lastReward, money)
 	p0.lastReward.Add(p0.lastReward, money)
-	p.totalPledge.Add(p.totalPledge, money)
+	p.totalPledge.Sub(p.totalPledge, amount)
+	p.totalPledge.Add(p.totalPledge, p0.lastReward)
 
 	return nil
 }
@@ -248,14 +249,14 @@ func (p *pledgeMgr) Withdraw(caller utils.Address, index uint64, tokenIndex uint
 		tokenIndex: 0,
 	}
 
+	p0, ok := p.amount[mk]
+	if !ok {
+		return ErrEmpty
+	}
+	amount := new(big.Int).Set(p0.lastReward)
 	if p.totalPledge.Cmp(zero) > 0 {
-		p0, ok := p.amount[mk]
-		if !ok {
-			return ErrEmpty
-		}
 
 		totalPledge := new(big.Int).Set(p.totalPledge)
-		amount := new(big.Int).Set(p0.lastReward)
 
 		// 更新token acc，结算奖励
 		for i, taddr := range p.tokens {
@@ -328,7 +329,8 @@ func (p *pledgeMgr) Withdraw(caller utils.Address, index uint64, tokenIndex uint
 		pi.lastReward.Sub(pi.lastReward, rw)
 
 		if tokenIndex == 0 {
-			p.totalPledge.Sub(p.totalPledge, rw)
+			p.totalPledge.Sub(p.totalPledge, amount)
+			p.totalPledge.Add(p.totalPledge, pi.lastReward)
 		}
 	}
 
