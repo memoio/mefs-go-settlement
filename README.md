@@ -45,8 +45,7 @@ admin创建RoleMgr合约
 
 ### pre2
 
-+ admin CreateGroup 
-+ admin 创建FsMgr合约
++ admin CreateGroup
 
 ### 注册keeper
 
@@ -82,12 +81,15 @@ admin创建RoleMgr合约
 
 基于pre2
 
-+ 在group对应的FsMgr中CreateFs并在RoleMgr中注册
++ 加入某group
+
+## 增发逻辑
+
++ 根据当前市场需要支付的额度进行增发额度
++ 根据总时空值确定增发系数
 
 
 ## todo
 
-+ 分润
-+ 增发
 + 修复
 

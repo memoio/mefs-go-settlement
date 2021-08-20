@@ -39,6 +39,12 @@ type groupInfo struct {
 	fsAddr    utils.Address // fs contract addr
 }
 
+type mintInfo struct {
+	ratio    uint16
+	size     uint64
+	duration uint64
+}
+
 var _ RoleMgr = (*roleMgr)(nil)
 
 type roleMgr struct {
@@ -62,15 +68,46 @@ type roleMgr struct {
 	pledgePro    *big.Int // pledgeMoney for provider
 	totalPledge  *big.Int
 
-	lastMint   uint64
-	totalSize  *big.Int
-	totalPrice *big.Int
+	mintLevel int
+	mint      []*mintInfo
+	lastMint  uint64
+	start     uint64
+	size      *big.Int
+	price     *big.Int
+	spaceTime *big.Int
+	totalPaid *big.Int
+	totalPay  *big.Int
 }
 
 // NewRoleMgr can be admin by mutiple signatures
 func NewRoleMgr(caller, foundation, primaryToken utils.Address, kPledge, pPledge *big.Int) RoleMgr {
 	// generate local utils.Address from
 	local := utils.GetContractAddress(caller, []byte("RoleMgr"))
+
+	mi := make([]*mintInfo, 4)
+	mi[0] = &mintInfo{
+		ratio:    100,
+		size:     1,
+		duration: 1,
+	}
+
+	mi[1] = &mintInfo{
+		ratio:    120,
+		size:     100 * 1024 * 1024 * 1024 * 1024, // 100TB
+		duration: 100 * 24 * 60 * 60,              // 100 days
+	}
+
+	mi[2] = &mintInfo{
+		ratio:    150,
+		size:     1024 * 1024 * 1024 * 1024 * 1024, // 1PB
+		duration: 100 * 24 * 60 * 60,               // 100 days
+	}
+
+	mi[3] = &mintInfo{
+		ratio:    200,
+		size:     10 * 1024 * 1024 * 1024 * 1024 * 1024, // 10PB
+		duration: 100 * 24 * 60 * 60,                    // 100 days
+	}
 
 	rm := &roleMgr{
 		admin:      caller,
@@ -87,9 +124,16 @@ func NewRoleMgr(caller, foundation, primaryToken utils.Address, kPledge, pPledge
 		pledgeKeeper: kPledge,
 		pledgePro:    pPledge,
 		totalPledge:  big.NewInt(0),
-		totalSize:    big.NewInt(0),
-		totalPrice:   big.NewInt(0),
-		lastMint:     GetTime(),
+
+		mint:      mi,
+		start:     GetTime(),
+		lastMint:  GetTime(),
+		mintLevel: 0,
+		size:      big.NewInt(0),
+		price:     big.NewInt(0),
+		totalPaid: big.NewInt(0),
+		totalPay:  big.NewInt(0),
+		spaceTime: big.NewInt(0),
 	}
 
 	ti := &tokenInfo{
@@ -643,26 +687,55 @@ func (r *roleMgr) AddOrder(caller utils.Address, user, proIndex, start, end, siz
 		return err
 	}
 
+	// 增发
 	if tokenIndex == 0 {
 		gi.size.Add(gi.size, new(big.Int).SetUint64(size))
 		gi.price.Add(gi.price, sprice)
 
-		r.totalPrice.Add(r.totalPrice, sprice)
-		r.totalSize.Add(r.totalSize, new(big.Int).SetUint64(size))
-
 		ntime := GetTime()
 		mint := new(big.Int).SetUint64(ntime - r.lastMint)
-		mint.Mul(mint, r.totalPrice)
 
+		paid := new(big.Int).Mul(r.price, mint)
+
+		reward := new(big.Int).Sub(r.totalPay, r.totalPaid)
+		length := new(big.Int).Div(reward, r.price) // length
+		reward.Div(reward, length)
+		reward.Mul(reward, mint)
+
+		for i := r.mintLevel + 1; i < len(r.mint); i++ {
+			esize := new(big.Int).SetUint64(r.mint[i].size)
+			if esize.Cmp(r.size) < 0 {
+				esize.Set(r.size)
+			}
+
+			dur := new(big.Int).SetUint64(r.mint[i].duration)
+
+			if r.spaceTime.Div(r.spaceTime, esize).Cmp(dur) >= 0 {
+				r.mintLevel = i
+			} else {
+				break
+			}
+		}
+
+		reward.Mul(reward, new(big.Int).SetUint64(r.mint[r.mintLevel].size))
+		reward.Div(reward, new(big.Int).SetUint64(100))
+
+		st := new(big.Int).Mul(r.size, new(big.Int).SetUint64(end-start))
+		r.spaceTime.Add(r.spaceTime, st)
+
+		r.size.Add(r.size, new(big.Int).SetUint64(size))
+		pay := new(big.Int).Mul(sprice, new(big.Int).SetUint64(end-start))
+		r.totalPay.Add(r.totalPay, pay)
+
+		mint.Mul(mint, reward)
 		err = sendBalance(r.tokens[0], r.local, r.pledge, mint)
 		if err != nil {
 			return err
 		}
+		r.totalPaid.Add(r.totalPaid, paid)
 
 		r.lastMint = ntime
 	}
-
-	// 增发
 
 	return nil
 }
@@ -718,8 +791,8 @@ func (r *roleMgr) SubOrder(caller utils.Address, user, proIndex, start, end, siz
 		gi.size.Sub(gi.size, new(big.Int).SetUint64(size))
 		gi.price.Sub(gi.price, sprice)
 
-		r.totalPrice.Sub(r.totalPrice, sprice)
-		r.totalSize.Sub(r.totalSize, new(big.Int).SetUint64(size))
+		r.price.Sub(r.price, sprice)
+		r.size.Sub(r.size, new(big.Int).SetUint64(size))
 	}
 
 	return nil
