@@ -698,9 +698,12 @@ func (r *roleMgr) AddOrder(caller utils.Address, user, proIndex, start, end, siz
 		paid := new(big.Int).Mul(r.price, mint)
 
 		reward := new(big.Int).Sub(r.totalPay, r.totalPaid)
-		length := new(big.Int).Div(reward, r.price) // length
-		reward.Div(reward, length)
-		reward.Mul(reward, mint)
+
+		if r.price.Cmp(zero) > 0 {
+			length := new(big.Int).Div(reward, r.price) // length
+			reward.Div(reward, length)
+			reward.Mul(reward, mint)
+		}
 
 		for i := r.mintLevel + 1; i < len(r.mint); i++ {
 			esize := new(big.Int).SetUint64(r.mint[i].size)

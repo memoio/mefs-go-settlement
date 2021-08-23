@@ -103,6 +103,8 @@ func (p *pledgeMgr) GetBalance(caller utils.Address, index uint64) []*big.Int {
 			val.Sub(val, rew.rewardAccum)
 			val.Mul(val, amount)
 			val.Add(val, rew.lastReward)
+		} else {
+			val.Mul(val, amount)
 		}
 
 		res[i] = val
@@ -163,49 +165,46 @@ func (p *pledgeMgr) Pledge(caller utils.Address, index uint64, money *big.Int) e
 	p0, ok := p.amount[mk]
 	if !ok {
 		p0 = &rewardInfo{
-			rewardAccum: big.NewInt(0),
+			rewardAccum: new(big.Int).Set(p.tInfo[0].rewardAccum),
 			lastReward:  big.NewInt(0),
 		}
 		p.amount[mk] = p0
 	}
 
 	amount := new(big.Int).Set(p0.lastReward)
-	if p.totalPledge.Cmp(zero) > 0 {
-		totalPledge := new(big.Int).Set(p.totalPledge)
+	totalPledge := new(big.Int).Set(p.totalPledge)
+	// 更新token acc，结算奖励
+	for i, taddr := range p.tokens {
+		// update tokenInfo
+		ti := p.tInfo[uint32(i)]
 
-		// 更新token acc，结算奖励
-		for i, taddr := range p.tokens {
-			// update tokenInfo
-			ti := p.tInfo[uint32(i)]
-
-			mki := multiKey{
-				roleIndex:  index,
-				tokenIndex: uint32(i),
-			}
-
-			rew, ok := p.amount[mki]
-			if !ok {
-				rew = &rewardInfo{
-					rewardAccum: big.NewInt(0),
-					lastReward:  big.NewInt(0),
-				}
-				p.amount[mki] = rew
-			}
-
-			bal := getBalance(taddr, p.local)
-			tv := new(big.Int).Sub(bal, ti.lastReward)
-			if tv.Cmp(zero) > 0 && totalPledge.Cmp(zero) > 0 {
-				tv.Div(tv, totalPledge)
-				ti.rewardAccum.Add(ti.rewardAccum, tv)
-			}
-
-			ti.lastReward = bal // update to lastest
-
-			res := new(big.Int).Sub(ti.rewardAccum, rew.rewardAccum)
-			res.Mul(res, amount)
-			rew.lastReward.Add(rew.lastReward, res)            // 添加奖励
-			rew.rewardAccum = new(big.Int).Set(ti.rewardAccum) // 更新acc
+		mki := multiKey{
+			roleIndex:  index,
+			tokenIndex: uint32(i),
 		}
+
+		rew, ok := p.amount[mki]
+		if !ok {
+			rew = &rewardInfo{
+				rewardAccum: new(big.Int).Set(ti.rewardAccum),
+				lastReward:  big.NewInt(0),
+			}
+			p.amount[mki] = rew
+		}
+
+		bal := getBalance(taddr, p.local)
+		tv := new(big.Int).Sub(bal, ti.lastReward)
+		if tv.Cmp(zero) > 0 && totalPledge.Cmp(zero) > 0 {
+			tv.Div(tv, totalPledge)
+			ti.rewardAccum.Add(ti.rewardAccum, tv)
+		}
+
+		ti.lastReward = bal // update to lastest
+
+		res := new(big.Int).Sub(ti.rewardAccum, rew.rewardAccum)
+		res.Mul(res, amount)
+		rew.lastReward.Add(rew.lastReward, res)            // 添加奖励
+		rew.rewardAccum = new(big.Int).Set(ti.rewardAccum) // 更新acc
 	}
 
 	err = sendBalanceFrom(p.tokens[0], p.local, addr, p.local, money)
@@ -328,10 +327,11 @@ func (p *pledgeMgr) Withdraw(caller utils.Address, index uint64, tokenIndex uint
 		// update value
 		pi.lastReward.Sub(pi.lastReward, rw)
 
-		if tokenIndex == 0 {
-			p.totalPledge.Sub(p.totalPledge, amount)
-			p.totalPledge.Add(p.totalPledge, pi.lastReward)
-		}
+	}
+
+	if tokenIndex == 0 {
+		p.totalPledge.Sub(p.totalPledge, amount)
+		p.totalPledge.Add(p.totalPledge, pi.lastReward)
 	}
 
 	return nil

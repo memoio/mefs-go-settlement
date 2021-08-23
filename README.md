@@ -34,7 +34,7 @@ ERC2.0代币，主要功能：
 + AddOrder加入用户每一个订单
 + SubOrder在订单过期后调用
 + provider费用：根据价格，存储量，以及已存储时长在线下共识后，线上获取；
-+ keeper组费用：5%订单费用，4%根据provider获取时获取；1%在订单到期后获取；
++ keeper组费用：4%订单费用，3%根据provider获取时获取；1%在订单到期后获取；
 + keeper内部分成：根据调用AddOrder，SubOrder的次数，来分成
 
 ## 流程

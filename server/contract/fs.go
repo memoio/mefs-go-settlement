@@ -598,7 +598,8 @@ func (f *fsMgr) Recharge(caller utils.Address, user uint64, tokenIndex uint32, m
 	if ok {
 		bal.Add(bal, money)
 	} else {
-		f.balance[mk] = money
+		bal := new(big.Int).Set(money)
+		f.balance[mk] = bal
 	}
 
 	return nil
