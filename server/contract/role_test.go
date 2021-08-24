@@ -229,10 +229,9 @@ func testWithdrawPledge(t *testing.T, rAddr utils.Address, index uint64, tIndex 
 		t.Fatal("get balance fails")
 	}
 
-	t.Log(index, bal)
-
 	before := et.BalanceOf(userAddr, userAddr)
-	t.Log(index, before)
+
+	_, _, bres := rm.GetPledge(userAddr)
 
 	err = rm.Withdraw(userAddr, ui.index, tIndex, big.NewInt(0), nil)
 	if err != nil {
@@ -240,30 +239,42 @@ func testWithdrawPledge(t *testing.T, rAddr utils.Address, index uint64, tIndex 
 	}
 
 	after := et.BalanceOf(userAddr, userAddr)
-	after.Sub(after, before)
+	getM := new(big.Int).Sub(after, before)
 
 	kp, pp, res := rm.GetPledge(userAddr)
-	t.Log(res)
+	val := new(big.Int).Sub(bres[tIndex], res[tIndex])
+	// 合约中少的金额和user账户多的金额匹配
+	if getM.Cmp(val) != 0 {
+		t.Log(index, before, after)
+		t.Fatal(index, "withdraw fails: ", getM, bres[tIndex], res[tIndex])
+	}
+
 	if tIndex == 0 {
 		if ui.roleType == roleKeeper {
-			after.Add(after, kp)
+			getM.Add(getM, kp)
 		} else if ui.roleType == roleProvider {
-			after.Add(after, pp)
+			getM.Add(getM, pp)
 		}
 	}
 
-	if after.Cmp(bal[tIndex]) != 0 {
-		t.Fatal("withdraw fails: ", after, bal[tIndex])
+	//  Withdraw前用户的余额=取出的余额+最小质押额
+	if getM.Cmp(bal[tIndex]) != 0 {
+		t.Log(index, before, after)
+		t.Fatal("withdraw fails: ", getM, bal[tIndex])
 	}
-	t.Log("withdraw: ", after)
+
+	t.Log(index, "withdraw: ", getM)
 }
 
 func testCreateKeeper(t *testing.T, rAddr utils.Address) uint64 {
-	index := testPledge(t, rAddr, big.NewInt(123450))
+
 	rm, err := getRoleMgr(rAddr)
 	if err != nil {
 		t.Fatal(err)
 	}
+
+	kPledge, _, _ := rm.GetPledge(rAddr)
+	index := testPledge(t, rAddr, new(big.Int).Mul(kPledge, big.NewInt(10)))
 
 	err = rm.RegisterKeeper(rm.GetOwnerAddress(), index, nil, nil)
 	if err != nil {
@@ -274,11 +285,13 @@ func testCreateKeeper(t *testing.T, rAddr utils.Address) uint64 {
 }
 
 func testCreateProvider(t *testing.T, rAddr utils.Address) uint64 {
-	index := testPledge(t, rAddr, big.NewInt(123450))
 	rm, err := getRoleMgr(rAddr)
 	if err != nil {
 		t.Fatal(err)
 	}
+
+	_, pPledge, _ := rm.GetPledge(rAddr)
+	index := testPledge(t, rAddr, new(big.Int).Mul(pPledge, big.NewInt(10)))
 
 	err = rm.RegisterProvider(rm.GetOwnerAddress(), index, nil)
 	if err != nil {
@@ -444,22 +457,42 @@ func testAddOrder(t *testing.T, rAddr utils.Address, kIndex, userIndex, proIndex
 	}
 
 	bavil, block, bpaid := fm.GetBalance(kAddr, proIndex, 0)
+	buavil, bulock, bupaid := fm.GetBalance(kAddr, userIndex, 0)
+	bkavil, bklock, bkpaid := fm.GetBalance(kAddr, kIndex, 0)
+
+	t.Log(userIndex, "before:", buavil, bulock, bupaid)
+	t.Log(kIndex, "before:", bkavil, bklock, bkpaid)
+	t.Log(proIndex, "before:", bavil, block, bpaid)
 
 	err = rm.AddOrder(kAddr, userIndex, proIndex, start, end, size, nonce, 0, big.NewInt(600000), nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	tp := new(big.Int).Mul(big.NewInt(600000), new(big.Int).SetUint64(end-start))
-
 	avil, lock, paid := fm.GetBalance(kAddr, proIndex, 0)
+	kavil, klock, kpaid := fm.GetBalance(kAddr, kIndex, 0)
+	uavil, ulock, upaid := fm.GetBalance(kAddr, userIndex, 0)
 
-	tp.Add(tp, block)
-	if tp.Cmp(lock) != 0 {
+	t.Log(userIndex, "after:", uavil, ulock, upaid)
+	t.Log(kIndex, "after:", kavil, klock, kpaid)
+	t.Log(proIndex, "after:", avil, lock, paid)
+
+	pay := new(big.Int).Mul(big.NewInt(600000), new(big.Int).SetUint64(end-start))
+	per := new(big.Int).Div(pay, big.NewInt(100))
+
+	tax := new(big.Int).Mul(per, big.NewInt(5))
+	payAndTax := new(big.Int).Add(pay, tax)
+
+	uCost := new(big.Int).Sub(buavil, uavil)
+	if uCost.Cmp(payAndTax) != 0 {
+		t.Fatal("add order to pro fails, user cost not right")
+	}
+
+	pErn := new(big.Int).Sub(lock, block)
+	if pErn.Cmp(pay) != 0 {
 		t.Fatal("add order to pro fails")
 	}
-	t.Log(bavil, block, bpaid)
-	t.Log(avil, lock, paid, tp)
+
 }
 
 func testSubOrder(t *testing.T, rAddr utils.Address, kIndex, userIndex, proIndex, start, end, size, nonce uint64) {
@@ -479,8 +512,34 @@ func testSubOrder(t *testing.T, rAddr utils.Address, kIndex, userIndex, proIndex
 	}
 }
 
-func testProWithdraw(t *testing.T, rAddr utils.Address, proIndex uint64, amount *big.Int) {
+func testProWithdraw(t *testing.T, rAddr utils.Address, proIndex uint64, amount, lost *big.Int) {
+	rm, err := getRoleMgr(rAddr)
+	if err != nil {
+		t.Fatal(err)
+	}
 
+	_, pAddr, err := rm.GetInfo(rm.GetOwnerAddress(), proIndex)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	gi, err := rm.GetGroupInfo(pAddr, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fm, err := getFsMgr(gi.fsAddr)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	bavil, block, bpaid := fm.GetBalance(pAddr, proIndex, 0)
+	t.Log(proIndex, "before:", bavil, block, bpaid)
+	err = fm.ProWithdraw(pAddr, proIndex, 0, amount, lost, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	avil, lock, paid := fm.GetBalance(pAddr, proIndex, 0)
+	t.Log(proIndex, "after:", avil, lock, paid)
 }
 
 func testKeeperWithdraw(t *testing.T, rAddr utils.Address, kIndex uint64, amount *big.Int) {
@@ -495,12 +554,10 @@ func TestRole(t *testing.T) {
 	testAddToken(t, rAddr, tAddr2)
 	uindex1 := testPledge(t, rAddr, big.NewInt(2000))
 	testWithdrawPledge(t, rAddr, uindex1, 0, true)
-	uindex2 := testPledge(t, rAddr, big.NewInt(1000))
-	testWithdrawPledge(t, rAddr, uindex2, 1, true)
-	testWithdrawPledge(t, rAddr, uindex1, 0, false)
-	testWithdrawPledge(t, rAddr, uindex1, 1, true)
-	testWithdrawPledge(t, rAddr, uindex2, 1, true)
-	testWithdrawPledge(t, rAddr, uindex2, 1, true)
+	uindex2 := testCreateKeeper(t, rAddr)
+	testWithdrawPledge(t, rAddr, uindex2, 0, true)
+	uindex3 := testCreateProvider(t, rAddr)
+	testWithdrawPledge(t, rAddr, uindex3, 0, true)
 
 	var keepers []uint64
 	for i := 0; i < 7; i++ {
@@ -524,10 +581,13 @@ func TestRole(t *testing.T) {
 	nt := uint64(time.Now().Unix())
 
 	testAddOrder(t, rAddr, kIndex, uIndex, pIndex, nt-190, nt+10, 300, 0)
-	t.Log("add order 0")
+	testProWithdraw(t, rAddr, pIndex, big.NewInt(1500), big.NewInt(240))
+
+	time.Sleep(5 * time.Second)
+
 	testAddOrder(t, rAddr, kIndex, uIndex, pIndex, nt-80, nt+20, 200, 1)
 
-	time.Sleep(11 * time.Second)
+	time.Sleep(6 * time.Second)
 	testSubOrder(t, rAddr, kIndex, uIndex, pIndex, nt-190, nt+10, 300, 0)
 	time.Sleep(10 * time.Second)
 	testSubOrder(t, rAddr, kIndex, uIndex, pIndex, nt-80, nt+20, 200, 1)

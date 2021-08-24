@@ -645,6 +645,7 @@ func (r *roleMgr) Withdraw(caller utils.Address, index uint64, tokenIndex uint32
 
 // order ops
 func (r *roleMgr) AddOrder(caller utils.Address, user, proIndex, start, end, size, nonce uint64, tokenIndex uint32, sprice *big.Int, usign, psign []byte, ksigns [][]byte) error {
+	log.Info("AddOrder")
 	// verify ksigns
 	// verify usign
 	// verify psign
@@ -693,17 +694,19 @@ func (r *roleMgr) AddOrder(caller utils.Address, user, proIndex, start, end, siz
 		gi.price.Add(gi.price, sprice)
 
 		ntime := GetTime()
-		mint := new(big.Int).SetUint64(ntime - r.lastMint)
+		dur := new(big.Int).SetUint64(ntime - r.lastMint)
 
-		paid := new(big.Int).Mul(r.price, mint)
+		paid := new(big.Int).Mul(r.price, dur)
 
 		reward := new(big.Int).Sub(r.totalPay, r.totalPaid)
 
 		if r.price.Cmp(zero) > 0 {
 			length := new(big.Int).Div(reward, r.price) // length
 			reward.Div(reward, length)
-			reward.Mul(reward, mint)
+			reward.Mul(reward, dur)
 		}
+
+		log.Info("AddOrder: send to pledge: ", reward)
 
 		for i := r.mintLevel + 1; i < len(r.mint); i++ {
 			esize := new(big.Int).SetUint64(r.mint[i].size)
@@ -719,23 +722,26 @@ func (r *roleMgr) AddOrder(caller utils.Address, user, proIndex, start, end, siz
 				break
 			}
 		}
-
-		reward.Mul(reward, new(big.Int).SetUint64(r.mint[r.mintLevel].size))
-		reward.Div(reward, new(big.Int).SetUint64(100))
+		log.Info("AddOrder: send to pledge: ", reward)
 
 		st := new(big.Int).Mul(r.size, new(big.Int).SetUint64(end-start))
 		r.spaceTime.Add(r.spaceTime, st)
 
 		r.size.Add(r.size, new(big.Int).SetUint64(size))
+		r.price.Add(r.price, sprice)
 		pay := new(big.Int).Mul(sprice, new(big.Int).SetUint64(end-start))
 		r.totalPay.Add(r.totalPay, pay)
 
-		mint.Mul(mint, reward)
-		err = sendBalance(r.tokens[0], r.local, r.pledge, mint)
+		reward.Mul(reward, new(big.Int).SetUint64(uint64(r.mint[r.mintLevel].ratio)))
+		reward.Div(reward, new(big.Int).SetUint64(100))
+
+		err = sendBalance(r.tokens[0], r.local, r.pledge, reward)
 		if err != nil {
 			return err
 		}
+		log.Info("AddOrder: send to pledge: ", reward)
 		r.totalPaid.Add(r.totalPaid, paid)
+		log.Info("AddOrder: totalPay: ", r.totalPay, r.totalPaid, r.lastMint, ntime)
 
 		r.lastMint = ntime
 	}

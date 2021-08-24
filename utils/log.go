@@ -1,10 +1,10 @@
 package utils
 
 import (
+	"github.com/mitchellh/go-homedir"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"gopkg.in/natefinch/lumberjack.v2"
-	"github.com/mitchellh/go-homedir"
 )
 
 var mLogger *zap.SugaredLogger

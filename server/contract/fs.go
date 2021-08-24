@@ -330,7 +330,7 @@ func (f *fsMgr) AddOrder(caller utils.Address, kindex, user, proIndex, start, en
 		tokenIndex: tokenIndex,
 	}
 
-	bal, ok := f.balance[uKey]
+	ubal, ok := f.balance[uKey]
 	if !ok {
 		return ErrBalanceNotEnough
 	}
@@ -343,12 +343,13 @@ func (f *fsMgr) AddOrder(caller utils.Address, kindex, user, proIndex, start, en
 	manage := new(big.Int).Mul(per, big.NewInt(int64(f.manageRate)))
 	tax := new(big.Int).Mul(per, big.NewInt(int64(f.taxRate)))
 
-	payAndTax := new(big.Int)
-	payAndTax.Add(pay, tax)
-	payAndTax.Add(pay, manage)
-	if bal.Cmp(payAndTax) < 0 {
+	payAndTax := new(big.Int).Add(pay, manage)
+	payAndTax.Add(payAndTax, tax)
+	if ubal.Cmp(payAndTax) < 0 {
 		return ErrBalanceNotEnough
 	}
+
+	log.Info(payAndTax, pay, manage, tax)
 
 	fi, err := f.getFsInfo(user)
 	if err != nil {
@@ -425,6 +426,8 @@ func (f *fsMgr) AddOrder(caller utils.Address, kindex, user, proIndex, start, en
 		fbal = new(big.Int).Set(tax)
 		f.balance[fKey] = fbal
 	}
+
+	ubal.Sub(ubal, payAndTax)
 
 	cnt, ok := f.count[kindex]
 	if ok {

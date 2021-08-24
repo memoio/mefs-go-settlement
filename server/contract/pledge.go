@@ -58,10 +58,9 @@ func (p *pledgeMgr) GetOwnerAddress() utils.Address {
 }
 
 func (p *pledgeMgr) GetPledge(caller utils.Address) []*big.Int {
-	var res []*big.Int
-	for i := range p.tokens {
-		ti := p.tInfo[uint32(i)]
-		res = append(res, ti.lastReward)
+	res := make([]*big.Int, len(p.tokens))
+	for i, taddr := range p.tokens {
+		res[i] = new(big.Int).Set(getBalance(taddr, p.local))
 	}
 	return res
 }
@@ -254,7 +253,6 @@ func (p *pledgeMgr) Withdraw(caller utils.Address, index uint64, tokenIndex uint
 	}
 	amount := new(big.Int).Set(p0.lastReward)
 	if p.totalPledge.Cmp(zero) > 0 {
-
 		totalPledge := new(big.Int).Set(p.totalPledge)
 
 		// 更新token acc，结算奖励
@@ -273,8 +271,7 @@ func (p *pledgeMgr) Withdraw(caller utils.Address, index uint64, tokenIndex uint
 				ti.rewardAccum.Add(ti.rewardAccum, tv)
 			}
 
-			ti.lastReward = bal // update to lastest
-
+			ti.lastReward = new(big.Int).Set(bal) // update to lastest
 			mki := multiKey{
 				roleIndex:  index,
 				tokenIndex: uint32(i),

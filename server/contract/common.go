@@ -8,6 +8,8 @@ import (
 	"github.com/memoio/go-settlement/utils"
 )
 
+var log = utils.Logger("contract")
+
 // for compare
 var zero = new(big.Int).SetInt64(0)
 
