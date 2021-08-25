@@ -106,7 +106,13 @@ func (e *ercToken) Approve(caller, spender utils.Address, value *big.Int) {
 			owner:   caller,
 			spender: spender,
 		}
-		e.allowed[tKey] = new(big.Int).Set(value)
+		allo, ok := e.allowed[tKey]
+		if ok {
+			allo.Add(allo, value)
+		} else {
+			allo = new(big.Int).Set(value)
+			e.allowed[tKey] = allo
+		}
 	}
 }
 

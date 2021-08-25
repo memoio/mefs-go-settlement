@@ -3,6 +3,7 @@ package contract
 import (
 	"errors"
 	"math/big"
+	"reflect"
 	"time"
 
 	"github.com/memoio/go-settlement/utils"
@@ -111,6 +112,22 @@ func GetTime() uint64 {
 
 func GetMap() map[utils.Address]interface{} {
 	return globalMap
+}
+
+func CopyStruct(src, dst interface{}) {
+	sval := reflect.ValueOf(src).Elem()
+	dval := reflect.ValueOf(dst).Elem()
+
+	for i := 0; i < sval.NumField(); i++ {
+		value := sval.Field(i)
+		name := sval.Type().Field(i).Name
+
+		dvalue := dval.FieldByName(name)
+		if !dvalue.IsValid() {
+			continue
+		}
+		dvalue.Set(value) //这里默认共同成员的类型一样，否则这个地方可能导致 panic，需要简单修改一下。
+	}
 }
 
 func getErcToken(addr utils.Address) (ErcToken, error) {
@@ -232,10 +249,10 @@ type RoleMgr interface {
 	//  查询相关
 	// 获取addr地址的相关信息
 	GetIndex(caller, addr utils.Address) (uint64, error)
-	GetInfo(caller utils.Address, index uint64) (*baseInfo, utils.Address, error)
+	GetInfo(caller utils.Address, index uint64) (*BaseInfo, utils.Address, error)
 	GetTokenIndex(caller, taddr utils.Address) (uint32, error)
 	GetTokenAddress(caller utils.Address, index uint32) (utils.Address, error)
-	GetGroupInfo(caller utils.Address, gindex uint64) (*groupInfo, error)
+	GetGroupInfo(caller utils.Address, gindex uint64) (*GroupInfo, error)
 
 	GetBalance(caller utils.Address, index uint64) ([]*big.Int, error)
 
@@ -243,7 +260,7 @@ type RoleMgr interface {
 	GetPledge(caller utils.Address) (*big.Int, *big.Int, []*big.Int)
 	GetAllTokens(caller utils.Address) []utils.Address
 	GetAllAddrs(caller utils.Address) []utils.Address
-	GetAllGroups(caller utils.Address) []*groupInfo
+	GetAllGroups(caller utils.Address) []*GroupInfo
 
 	GetFoundation(caller utils.Address) utils.Address
 

@@ -639,7 +639,7 @@ func (f *fsMgr) Withdraw(caller utils.Address, index uint64, tokenIndex uint32, 
 		return err
 	}
 
-	if ki.roleType == roleKeeper {
+	if ki.RoleType == RoleKeeper {
 		ntime := GetTime()
 		if ntime-f.lastTime > f.period {
 			if f.totalCount <= 0 {

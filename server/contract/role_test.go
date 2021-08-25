@@ -9,6 +9,21 @@ import (
 	"github.com/memoio/go-settlement/utils"
 )
 
+func TestCopy(t *testing.T) {
+	src := GroupInfo{
+		isActive:  true,
+		level:     10,
+		providers: []uint64{1, 2},
+		price:     big.NewInt(100),
+		FsAddr:    utils.BytesToAddress([]byte{}),
+	}
+
+	to := GroupInfo{}
+	CopyStruct(src, to)
+	t.Log(to.level, to.price)
+	t.Fatal("end")
+}
+
 func TestErc(t *testing.T) {
 	testErc(t)
 }
@@ -250,9 +265,9 @@ func testWithdrawPledge(t *testing.T, rAddr utils.Address, index uint64, tIndex 
 	}
 
 	if tIndex == 0 {
-		if ui.roleType == roleKeeper {
+		if ui.RoleType == RoleKeeper {
 			getM.Add(getM, kp)
-		} else if ui.roleType == roleProvider {
+		} else if ui.RoleType == RoleProvider {
 			getM.Add(getM, pp)
 		}
 	}
@@ -406,7 +421,7 @@ func testCreateUser(t *testing.T, rAddr utils.Address, gIndex uint64) uint64 {
 		t.Fatal(err)
 	}
 
-	if ui.roleType != roleUser {
+	if ui.RoleType != RoleUser {
 		t.Fatal("create fs fails")
 	}
 
@@ -416,9 +431,9 @@ func testCreateUser(t *testing.T, rAddr utils.Address, gIndex uint64) uint64 {
 	}
 
 	pt.Transfer(pt.GetOwnerAddress(), userAddr, big.NewInt(1000000000000))
-	pt.Approve(userAddr, gi.fsAddr, big.NewInt(1000000000000))
+	pt.Approve(userAddr, gi.FsAddr, big.NewInt(1000000000000))
 
-	fm, err := getFsMgr(gi.fsAddr)
+	fm, err := getFsMgr(gi.FsAddr)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -451,7 +466,7 @@ func testAddOrder(t *testing.T, rAddr utils.Address, kIndex, userIndex, proIndex
 	if err != nil {
 		t.Fatal(err)
 	}
-	fm, err := getFsMgr(gi.fsAddr)
+	fm, err := getFsMgr(gi.FsAddr)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -540,7 +555,7 @@ func testProWithdraw(t *testing.T, rAddr utils.Address, proIndex uint64, amount,
 	if err != nil {
 		t.Fatal(err)
 	}
-	fm, err := getFsMgr(gi.fsAddr)
+	fm, err := getFsMgr(gi.FsAddr)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -602,7 +617,7 @@ func testFsWithdraw(t *testing.T, rAddr utils.Address, kIndex uint64, amount *bi
 	if err != nil {
 		t.Fatal(err)
 	}
-	fm, err := getFsMgr(gi.fsAddr)
+	fm, err := getFsMgr(gi.FsAddr)
 	if err != nil {
 		t.Fatal(err)
 	}

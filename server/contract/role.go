@@ -7,15 +7,15 @@ import (
 )
 
 const (
-	roleUser     uint8 = 1
-	roleProvider uint8 = 2
-	roleKeeper   uint8 = 3
+	RoleUser     uint8 = 1
+	RoleProvider uint8 = 2
+	RoleKeeper   uint8 = 3
 )
 
-type baseInfo struct {
+type BaseInfo struct {
 	isActive bool   // 是否激活
 	isBanned bool   // 是否禁用
-	roleType uint8  // 0 account, 1, user, 2, provider, 3 keeper
+	RoleType uint8  // 0 account, 1, user, 2, provider, 3 keeper
 	index    uint64 // 序列号
 	gIndex   uint64 // 所属group
 	extra    []byte // for offline
@@ -26,8 +26,8 @@ type tokenInfo struct {
 	isBanned bool
 }
 
-// groupInfo has
-type groupInfo struct {
+// GroupInfo has
+type GroupInfo struct {
 	isActive  bool
 	isBanned  bool     // 组是否已被禁用
 	isReady   bool     // 是否已在线下成组; 由签名触发
@@ -36,7 +36,7 @@ type groupInfo struct {
 	providers []uint64 // 有哪些provider
 	size      *big.Int // storeSize
 	price     *big.Int
-	fsAddr    utils.Address // fs contract addr
+	FsAddr    utils.Address // fs contract addr
 }
 
 type mintInfo struct {
@@ -55,10 +55,10 @@ type roleMgr struct {
 	foundation utils.Address // foundation address
 
 	addrs []utils.Address // all
-	info  map[utils.Address]*baseInfo
+	info  map[utils.Address]*BaseInfo
 
 	// manage group
-	groups []*groupInfo
+	groups []*GroupInfo
 
 	// 代币信息,0为主代币的代币地址
 	tokens []utils.Address
@@ -115,8 +115,8 @@ func NewRoleMgr(caller, foundation, primaryToken utils.Address, kPledge, pPledge
 		foundation: foundation,
 
 		addrs:  make([]utils.Address, 0, 128),
-		info:   make(map[utils.Address]*baseInfo),
-		groups: make([]*groupInfo, 0, 1),
+		info:   make(map[utils.Address]*BaseInfo),
+		groups: make([]*GroupInfo, 0, 1),
 
 		tokens: make([]utils.Address, 0, 1),
 		tInfo:  make(map[utils.Address]*tokenInfo),
@@ -143,8 +143,8 @@ func NewRoleMgr(caller, foundation, primaryToken utils.Address, kPledge, pPledge
 	rm.tokens = append(rm.tokens, primaryToken)
 	rm.tInfo[primaryToken] = ti
 
-	bi := &baseInfo{
-		roleType: 0,
+	bi := &BaseInfo{
+		RoleType: 0,
 		index:    uint64(len(rm.addrs)),
 	}
 
@@ -182,7 +182,7 @@ func (r *roleMgr) GetAllAddrs(caller utils.Address) []utils.Address {
 	return r.addrs
 }
 
-func (r *roleMgr) GetAllGroups(caller utils.Address) []*groupInfo {
+func (r *roleMgr) GetAllGroups(caller utils.Address) []*GroupInfo {
 	return r.groups
 }
 
@@ -214,7 +214,7 @@ func (r *roleMgr) GetTokenIndex(caller, addr utils.Address) (uint32, error) {
 	return 0, ErrNoSuchAddr
 }
 
-func (r *roleMgr) GetInfo(caller utils.Address, index uint64) (*baseInfo, utils.Address, error) {
+func (r *roleMgr) GetInfo(caller utils.Address, index uint64) (*BaseInfo, utils.Address, error) {
 	var res utils.Address
 	if int(index) >= len(r.addrs) {
 		return nil, res, ErrInput
@@ -229,7 +229,7 @@ func (r *roleMgr) GetInfo(caller utils.Address, index uint64) (*baseInfo, utils.
 	return ki, addr, nil
 }
 
-func (r *roleMgr) getInfo(index uint64) (*baseInfo, error) {
+func (r *roleMgr) getInfo(index uint64) (*BaseInfo, error) {
 	if int(index) >= len(r.addrs) {
 		return nil, ErrInput
 	}
@@ -279,8 +279,8 @@ func (r *roleMgr) Register(caller, addr utils.Address, signature []byte) error {
 		return ErrExist
 	}
 
-	bi := &baseInfo{
-		roleType: 0,
+	bi := &BaseInfo{
+		RoleType: 0,
 		index:    uint64(len(r.addrs)),
 	}
 
@@ -297,7 +297,7 @@ func (r *roleMgr) RegisterKeeper(caller utils.Address, index uint64, blsKey, sig
 	}
 
 	// registered
-	if bi.roleType != 0 {
+	if bi.RoleType != 0 {
 		return ErrRoleType
 	}
 
@@ -315,7 +315,7 @@ func (r *roleMgr) RegisterKeeper(caller utils.Address, index uint64, blsKey, sig
 		return ErrBalanceNotEnough
 	}
 
-	bi.roleType = roleKeeper
+	bi.RoleType = RoleKeeper
 	bi.extra = blsKey
 
 	return nil
@@ -329,7 +329,7 @@ func (r *roleMgr) RegisterProvider(caller utils.Address, index uint64, signature
 	}
 
 	// registered
-	if bi.roleType != 0 {
+	if bi.RoleType != 0 {
 		return ErrRoleType
 	}
 
@@ -347,7 +347,7 @@ func (r *roleMgr) RegisterProvider(caller utils.Address, index uint64, signature
 		return ErrBalanceNotEnough
 	}
 
-	bi.roleType = roleProvider
+	bi.RoleType = RoleProvider
 
 	return nil
 }
@@ -361,7 +361,7 @@ func (r *roleMgr) RegisterUser(caller utils.Address, index, gIndex uint64, payTo
 	}
 
 	// registered
-	if bi.roleType != 0 {
+	if bi.RoleType != 0 {
 		return ErrRoleType
 	}
 
@@ -375,7 +375,7 @@ func (r *roleMgr) RegisterUser(caller utils.Address, index, gIndex uint64, payTo
 		return ErrPermission
 	}
 
-	fm, err := getFsMgr(gi.fsAddr)
+	fm, err := getFsMgr(gi.FsAddr)
 	if err != nil {
 		return err
 	}
@@ -385,7 +385,7 @@ func (r *roleMgr) RegisterUser(caller utils.Address, index, gIndex uint64, payTo
 		return err
 	}
 
-	bi.roleType = roleUser
+	bi.RoleType = RoleUser
 	bi.gIndex = gIndex
 	bi.extra = blsKey
 
@@ -414,14 +414,14 @@ func (r *roleMgr) GetProvidersInGroup(caller utils.Address, index uint64) ([]uin
 	return g.providers, nil
 }
 
-func (r *roleMgr) GetGroupInfo(caller utils.Address, index uint64) (*groupInfo, error) {
+func (r *roleMgr) GetGroupInfo(caller utils.Address, index uint64) (*GroupInfo, error) {
 	if index >= uint64(len(r.groups)) {
 		return nil, ErrInput
 	}
 	return r.groups[index], nil
 }
 
-func (r *roleMgr) getGroupInfo(index uint64) (*groupInfo, error) {
+func (r *roleMgr) getGroupInfo(index uint64) (*GroupInfo, error) {
 	if index >= uint64(len(r.groups)) {
 		return nil, ErrInput
 	}
@@ -450,14 +450,14 @@ func (r *roleMgr) CreateGroup(caller utils.Address, inds []uint64, level uint16,
 			return ErrPermission
 		}
 
-		if ki.roleType != roleKeeper {
+		if ki.RoleType != RoleKeeper {
 			return ErrRoleType
 		}
 	}
 
 	gIndex := len(r.groups)
 
-	gi := &groupInfo{
+	gi := &GroupInfo{
 		level:     level,
 		keepers:   inds,
 		providers: make([]uint64, 0, 1),
@@ -478,7 +478,7 @@ func (r *roleMgr) CreateGroup(caller utils.Address, inds []uint64, level uint16,
 		return err
 	}
 
-	gi.fsAddr = fs.GetContractAddress()
+	gi.FsAddr = fs.GetContractAddress()
 
 	if len(gi.keepers) >= int(level) {
 		gi.isActive = true
@@ -503,7 +503,7 @@ func (r *roleMgr) AddKeeperToGroup(caller utils.Address, index, gIndex uint64, k
 		return err
 	}
 
-	if ki.roleType != roleKeeper {
+	if ki.RoleType != RoleKeeper {
 		return ErrRoleType
 	}
 
@@ -512,7 +512,7 @@ func (r *roleMgr) AddKeeperToGroup(caller utils.Address, index, gIndex uint64, k
 		return ErrPermission
 	}
 
-	fsMgr, err := getFsMgr(gi.fsAddr)
+	fsMgr, err := getFsMgr(gi.FsAddr)
 	if err != nil {
 		return err
 	}
@@ -554,7 +554,7 @@ func (r *roleMgr) AddProviderToGroup(caller utils.Address, index, gIndex uint64,
 		return ErrPermission
 	}
 
-	if pi.roleType != roleProvider {
+	if pi.RoleType != RoleProvider {
 		return ErrRoleType
 	}
 
@@ -634,9 +634,9 @@ func (r *roleMgr) Withdraw(caller utils.Address, index uint64, tokenIndex uint32
 	}
 
 	lock := new(big.Int)
-	if bi.roleType == roleKeeper {
+	if bi.RoleType == RoleKeeper {
 		lock.Set(r.pledgeKeeper)
-	} else if bi.roleType == roleProvider {
+	} else if bi.RoleType == RoleProvider {
 		lock.Set(r.pledgePro)
 	}
 
@@ -674,7 +674,7 @@ func (r *roleMgr) AddOrder(caller utils.Address, user, proIndex, start, end, siz
 		return err
 	}
 
-	fm, err := getFsMgr(gi.fsAddr)
+	fm, err := getFsMgr(gi.FsAddr)
 	if err != nil {
 		return err
 	}
@@ -755,7 +755,7 @@ func (r *roleMgr) SubOrder(caller utils.Address, user, proIndex, start, end, siz
 		return err
 	}
 
-	if ui.roleType != roleUser {
+	if ui.RoleType != RoleUser {
 		return ErrRoleType
 	}
 
@@ -764,7 +764,7 @@ func (r *roleMgr) SubOrder(caller utils.Address, user, proIndex, start, end, siz
 		return err
 	}
 
-	if pi.roleType != roleProvider {
+	if pi.RoleType != RoleProvider {
 		return ErrRoleType
 	}
 
@@ -783,7 +783,7 @@ func (r *roleMgr) SubOrder(caller utils.Address, user, proIndex, start, end, siz
 		kindex = ki.index
 	}
 
-	fm, err := getFsMgr(gi.fsAddr)
+	fm, err := getFsMgr(gi.FsAddr)
 	if err != nil {
 		return err
 	}
