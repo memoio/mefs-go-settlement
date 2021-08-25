@@ -518,10 +518,23 @@ func testProWithdraw(t *testing.T, rAddr utils.Address, proIndex uint64, amount,
 		t.Fatal(err)
 	}
 
+	ts := rm.GetAllTokens(rm.GetOwnerAddress())
+
+	if len(ts) != 2 {
+		t.Log("wrong token")
+	}
+
+	pt, err := getErcToken(ts[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	_, pAddr, err := rm.GetInfo(rm.GetOwnerAddress(), proIndex)
 	if err != nil {
 		t.Fatal(err)
 	}
+
+	bbal := pt.BalanceOf(pAddr, pAddr)
 
 	gi, err := rm.GetGroupInfo(pAddr, 0)
 	if err != nil {
@@ -538,12 +551,83 @@ func testProWithdraw(t *testing.T, rAddr utils.Address, proIndex uint64, amount,
 	if err != nil {
 		t.Fatal(err)
 	}
+
+	bal := pt.BalanceOf(pAddr, pAddr)
 	avil, lock, paid := fm.GetBalance(pAddr, proIndex, 0)
+
 	t.Log(proIndex, "after:", avil, lock, paid)
+
+	if paid.Cmp(amount) != 0 {
+		t.Fatal("pro withdraw fails")
+	}
+
+	bal.Sub(bal, bbal)
+	paid.Sub(paid, bpaid)
+	if paid.Cmp(bal) != 0 {
+		t.Fatal("pro withdraw fails, pro money not right")
+	}
+
+	if avil.Cmp(zero) != 0 {
+		t.Fatal("pro withdraw fails, pro avail money not right")
+	}
+
+	// verify lost
 }
 
-func testKeeperWithdraw(t *testing.T, rAddr utils.Address, kIndex uint64, amount *big.Int) {
+func testFsWithdraw(t *testing.T, rAddr utils.Address, kIndex uint64, amount *big.Int) {
+	rm, err := getRoleMgr(rAddr)
+	if err != nil {
+		t.Fatal(err)
+	}
 
+	ts := rm.GetAllTokens(rm.GetOwnerAddress())
+
+	if len(ts) != 2 {
+		t.Log("wrong token")
+	}
+
+	pt, err := getErcToken(ts[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, kAddr, err := rm.GetInfo(rm.GetOwnerAddress(), kIndex)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	bbal := pt.BalanceOf(kAddr, kAddr)
+
+	gi, err := rm.GetGroupInfo(kAddr, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fm, err := getFsMgr(gi.fsAddr)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	bavil, block, bpaid := fm.GetBalance(kAddr, kIndex, 0)
+	t.Log(kIndex, "before:", bavil, block, bpaid)
+	err = fm.Withdraw(kAddr, kIndex, 0, amount, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	bal := pt.BalanceOf(kAddr, kAddr)
+	avil, lock, paid := fm.GetBalance(kAddr, kIndex, 0)
+
+	t.Log(kIndex, "after:", avil, lock, paid)
+
+	bal.Sub(bal, bbal)
+	paid.Sub(bavil, avil)
+	if paid.Cmp(bal) != 0 {
+		t.Fatal("withdraw fails, money not right")
+	}
+
+	if amount.Cmp(zero) == 0 && avil.Cmp(zero) != 0 {
+		t.Fatal("withdraw fails, avail money not right")
+	}
 }
 
 func TestRole(t *testing.T) {
@@ -581,9 +665,14 @@ func TestRole(t *testing.T) {
 	nt := uint64(time.Now().Unix())
 
 	testAddOrder(t, rAddr, kIndex, uIndex, pIndex, nt-190, nt+10, 300, 0)
-	testProWithdraw(t, rAddr, pIndex, big.NewInt(1500), big.NewInt(240))
 
 	time.Sleep(5 * time.Second)
+
+	testProWithdraw(t, rAddr, pIndex, big.NewInt(1500), big.NewInt(240))
+	testProWithdraw(t, rAddr, pIndex, big.NewInt(1800), big.NewInt(450))
+
+	testFsWithdraw(t, rAddr, kIndex, big.NewInt(0))
+	testFsWithdraw(t, rAddr, keepers[0], big.NewInt(0))
 
 	testAddOrder(t, rAddr, kIndex, uIndex, pIndex, nt-80, nt+20, 200, 1)
 
@@ -591,5 +680,10 @@ func TestRole(t *testing.T) {
 	testSubOrder(t, rAddr, kIndex, uIndex, pIndex, nt-190, nt+10, 300, 0)
 	time.Sleep(10 * time.Second)
 	testSubOrder(t, rAddr, kIndex, uIndex, pIndex, nt-80, nt+20, 200, 1)
+
+	testProWithdraw(t, rAddr, pIndex, big.NewInt(24000), big.NewInt(660))
+	testFsWithdraw(t, rAddr, kIndex, big.NewInt(0))
+	testFsWithdraw(t, rAddr, keepers[0], big.NewInt(0))
+	testFsWithdraw(t, rAddr, uIndex, big.NewInt(1000))
 	t.Fatal("end")
 }

@@ -209,7 +209,7 @@ func NewFsMgr(caller utils.Address, founder, gIndex uint64) (FsMgr, error) {
 		fs:    make(map[uint64]*fsInfo),
 
 		keepers:    gi.keepers,
-		period:     10,
+		period:     1,
 		lastTime:   GetTime(),
 		tAcc:       make(map[uint32]*big.Int),
 		totalCount: 0,
@@ -555,6 +555,22 @@ func (f *fsMgr) GetBalance(caller utils.Address, index uint64, tIndex uint32) (*
 		paid.Set(se.hasPaid)
 	}
 
+	kc, ok := f.count[index]
+	if ok {
+		ntime := GetTime()
+		if ntime-f.lastTime > f.period {
+			if f.totalCount <= 0 {
+				return avail, lock, paid
+			}
+
+			ti := f.tAcc[tIndex]
+			per := new(big.Int).Div(ti, new(big.Int).SetUint64(f.totalCount))
+
+			pro := new(big.Int).Mul(per, new(big.Int).SetUint64(kc))
+			avail.Add(avail, pro)
+		}
+	}
+
 	return avail, lock, paid
 }
 
@@ -722,6 +738,7 @@ func (f *fsMgr) ProWithdraw(caller utils.Address, proIndex uint64, tokenIndex ui
 	pb, ok := f.balance[pKey]
 	if ok {
 		thisPay.Add(thisPay, pb)
+		pb = pb.Set(thisPay)
 	} else {
 		pb = new(big.Int).Set(thisPay)
 		f.balance[pKey] = pb
