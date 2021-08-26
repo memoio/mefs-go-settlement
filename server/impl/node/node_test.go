@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"math/big"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/memoio/go-settlement/server/contract"
@@ -71,6 +72,14 @@ func testCreateRoleMgr(t *testing.T, n *Node, admin, taddr, founder utils.Addres
 	sig := sign(t, admin, uid)
 
 	raddr, err := n.CreateRoleMgr(uid, sig, admin, founder, taddr)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	uid = uuid.New()
+	sig = sign(t, admin, uid)
+
+	err = n.Transfer(uid, sig, taddr, admin, raddr, big.NewInt(1000000000000000))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -270,19 +279,41 @@ func testCreateGroup(t *testing.T, n *Node, admin utils.Address, inds []uint64) 
 }
 
 func testAddKeeper(t *testing.T, n *Node, admin utils.Address, gIndex uint64) uint64 {
+	gi, err := n.GetGroupInfo(admin, gIndex)
+	if err != nil {
+		t.Fatal(err)
+	}
+	knum := len(gi.Keepers)
+
 	kindex := testCreateKeeper(t, n, admin)
 
 	uid := uuid.New()
 	sig := sign(t, admin, uid)
-	err := n.AddKeeperToGroup(uid, sig, admin, kindex, gIndex, nil, nil)
+	err = n.AddKeeperToGroup(uid, sig, admin, kindex, gIndex, nil, nil)
 	if err != nil {
 		t.Fatal(err)
+	}
+
+	gi, err = n.GetGroupInfo(admin, gIndex)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if knum+1 != len(gi.Keepers) {
+		t.Fatal("add keeper fails")
 	}
 
 	return kindex
 }
 
 func testAddProvider(t *testing.T, n *Node, admin utils.Address, gIndex uint64) uint64 {
+	gi, err := n.GetGroupInfo(admin, gIndex)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	pnum := len(gi.Providers)
+
 	pindex := testCreateProvider(t, n, admin)
 
 	_, pAddr, err := n.GetInfo(admin, pindex)
@@ -296,6 +327,15 @@ func testAddProvider(t *testing.T, n *Node, admin utils.Address, gIndex uint64) 
 	err = n.AddProviderToGroup(uid, sig, pAddr, pindex, gIndex, nil)
 	if err != nil {
 		t.Fatal(err)
+	}
+
+	gi, err = n.GetGroupInfo(admin, gIndex)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if pnum+1 != len(gi.Providers) {
+		t.Fatal("add provider fails")
 	}
 
 	return pindex
@@ -325,11 +365,13 @@ func testCreateUser(t *testing.T, n *Node, admin utils.Address, gIndex uint64) u
 		t.Fatal("create fs fails")
 	}
 
+	// recharge
 	ts := n.GetAllTokens(uAddr)
+	amount := big.NewInt(4000000000000)
 
 	uid = uuid.New()
 	sig = sign(t, admin, uid)
-	err = n.Transfer(uid, sig, ts[0], admin, uAddr, big.NewInt(400000000))
+	err = n.Transfer(uid, sig, ts[0], admin, uAddr, amount)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -341,9 +383,180 @@ func testCreateUser(t *testing.T, n *Node, admin utils.Address, gIndex uint64) u
 
 	uid = uuid.New()
 	sig = sign(t, uAddr, uid)
-	n.Approve(uid, sig, ts[0], uAddr, gi.FsAddr, big.NewInt(400000000))
+	n.Approve(uid, sig, ts[0], uAddr, gi.FsAddr, amount)
+
+	uid = uuid.New()
+	sig = sign(t, uAddr, uid)
+	err = n.Recharge(uid, sig, uAddr, uindex, 0, amount, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	avail, _, _, err := n.GetBalanceInFs(uAddr, uindex, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if avail.Cmp(amount) != 0 {
+		t.Fatal("recharge fail")
+	}
 
 	return uindex
+}
+
+func testAddOrder(t *testing.T, n *Node, admin utils.Address, kIndex, userIndex, proIndex, start, end, size, nonce uint64) {
+	_, kAddr, err := n.GetInfo(admin, kIndex)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	bavil, block, bpaid, _ := n.GetBalanceInFs(kAddr, proIndex, 0)
+	buavil, bulock, bupaid, _ := n.GetBalanceInFs(kAddr, userIndex, 0)
+	bkavil, bklock, bkpaid, _ := n.GetBalanceInFs(kAddr, kIndex, 0)
+
+	t.Log(userIndex, "before:", buavil, bulock, bupaid)
+	t.Log(kIndex, "before:", bkavil, bklock, bkpaid)
+	t.Log(proIndex, "before:", bavil, block, bpaid)
+
+	uid := uuid.New()
+	sig := sign(t, kAddr, uid)
+
+	err = n.AddOrder(uid, sig, kAddr, userIndex, proIndex, start, end, size, nonce, 0, big.NewInt(600000), nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	avil, lock, paid, _ := n.GetBalanceInFs(kAddr, proIndex, 0)
+	kavil, klock, kpaid, _ := n.GetBalanceInFs(kAddr, kIndex, 0)
+	uavil, ulock, upaid, _ := n.GetBalanceInFs(kAddr, userIndex, 0)
+
+	t.Log(userIndex, "after:", uavil, ulock, upaid)
+	t.Log(kIndex, "after:", kavil, klock, kpaid)
+	t.Log(proIndex, "after:", avil, lock, paid)
+
+	pay := new(big.Int).Mul(big.NewInt(600000), new(big.Int).SetUint64(end-start))
+	per := new(big.Int).Div(pay, big.NewInt(100))
+
+	tax := new(big.Int).Mul(per, big.NewInt(5))
+	payAndTax := new(big.Int).Add(pay, tax)
+
+	uCost := new(big.Int).Sub(buavil, uavil)
+	if uCost.Cmp(payAndTax) != 0 {
+		t.Fatal("add order to pro fails, user cost not right")
+	}
+
+	pErn := new(big.Int).Sub(lock, block)
+	if pErn.Cmp(pay) != 0 {
+		t.Fatal("add order to pro fails")
+	}
+
+}
+
+func testSubOrder(t *testing.T, n *Node, admin utils.Address, kIndex, userIndex, proIndex, start, end, size, nonce uint64) {
+	_, kAddr, err := n.GetInfo(admin, kIndex)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	bavil, block, bpaid, _ := n.GetBalanceInFs(kAddr, proIndex, 0)
+	buavil, bulock, bupaid, _ := n.GetBalanceInFs(kAddr, userIndex, 0)
+	bkavil, bklock, bkpaid, _ := n.GetBalanceInFs(kAddr, kIndex, 0)
+
+	t.Log(userIndex, "before:", buavil, bulock, bupaid)
+	t.Log(kIndex, "before:", bkavil, bklock, bkpaid)
+	t.Log(proIndex, "before:", bavil, block, bpaid)
+
+	uid := uuid.New()
+	sig := sign(t, kAddr, uid)
+
+	err = n.SubOrder(uid, sig, kAddr, userIndex, proIndex, start, end, size, nonce, 0, big.NewInt(600000), nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	avil, lock, paid, _ := n.GetBalanceInFs(kAddr, proIndex, 0)
+	kavil, klock, kpaid, _ := n.GetBalanceInFs(kAddr, kIndex, 0)
+	uavil, ulock, upaid, _ := n.GetBalanceInFs(kAddr, userIndex, 0)
+
+	t.Log(userIndex, "after:", uavil, ulock, upaid)
+	t.Log(kIndex, "after:", kavil, klock, kpaid)
+	t.Log(proIndex, "after:", avil, lock, paid)
+}
+
+func testProWithdraw(t *testing.T, n *Node, admin utils.Address, proIndex uint64, amount, lost *big.Int) {
+
+	_, pAddr, err := n.GetInfo(admin, proIndex)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ts := n.GetAllTokens(admin)
+
+	bbal := n.BalanceOf(ts[0], pAddr, pAddr)
+
+	bavil, block, bpaid, _ := n.GetBalanceInFs(pAddr, proIndex, 0)
+	t.Log(proIndex, "before:", bavil, block, bpaid)
+
+	uid := uuid.New()
+	sig := sign(t, pAddr, uid)
+
+	err = n.ProWithdraw(uid, sig, pAddr, proIndex, 0, amount, lost, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	bal := n.BalanceOf(ts[0], pAddr, pAddr)
+	avil, lock, paid, _ := n.GetBalanceInFs(pAddr, proIndex, 0)
+
+	t.Log(proIndex, "after:", avil, lock, paid)
+
+	if paid.Cmp(amount) != 0 {
+		t.Fatal("pro withdraw fails")
+	}
+
+	bal.Sub(bal, bbal)
+	paid.Sub(paid, bpaid)
+	if paid.Cmp(bal) != 0 {
+		t.Fatal("pro withdraw fails, pro money not right")
+	}
+	// verify lost
+}
+
+func testFsWithdraw(t *testing.T, n *Node, admin utils.Address, index uint64, amount *big.Int) {
+	_, pAddr, err := n.GetInfo(admin, index)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ts := n.GetAllTokens(admin)
+
+	bbal := n.BalanceOf(ts[0], pAddr, pAddr)
+
+	bavil, block, bpaid, _ := n.GetBalanceInFs(pAddr, index, 0)
+	t.Log(index, "before:", bavil, block, bpaid)
+
+	uid := uuid.New()
+	sig := sign(t, pAddr, uid)
+
+	err = n.WithdrawFromFs(uid, sig, pAddr, index, 0, amount, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	bal := n.BalanceOf(ts[0], pAddr, pAddr)
+	avil, lock, paid, _ := n.GetBalanceInFs(pAddr, index, 0)
+
+	t.Log(index, "after:", avil, lock, paid)
+
+	bal.Sub(bal, bbal)
+	paid.Sub(bavil, avil)
+	if paid.Cmp(bal) != 0 {
+		t.Fatal("withdraw fails, money not right")
+	}
+
+	if amount.Cmp(big.NewInt(0)) == 0 && avil.Cmp(big.NewInt(0)) != 0 {
+		t.Fatal("withdraw fails, avail money not right")
+	}
 }
 
 func TestNode(t *testing.T) {
@@ -367,10 +580,38 @@ func TestNode(t *testing.T) {
 	}
 
 	gindex := testCreateGroup(t, n, admin, keepers)
-	testAddKeeper(t, n, admin, gindex)
-	testAddProvider(t, n, admin, gindex)
+	kIndex := testAddKeeper(t, n, admin, gindex)
+	pIndex := testAddProvider(t, n, admin, gindex)
 
-	testCreateUser(t, n, admin, gindex)
+	uIndex := testCreateUser(t, n, admin, gindex)
+
+	aindex := testCreateKeeper(t, n, admin)
+
+	nt := uint64(time.Now().Unix())
+
+	testAddOrder(t, n, admin, kIndex, uIndex, pIndex, nt-190, nt+10, 300, 0)
+
+	time.Sleep(5 * time.Second)
+
+	testProWithdraw(t, n, admin, pIndex, big.NewInt(1500), big.NewInt(240))
+	testProWithdraw(t, n, admin, pIndex, big.NewInt(1800), big.NewInt(450))
+
+	testFsWithdraw(t, n, admin, kIndex, big.NewInt(0))
+	testFsWithdraw(t, n, admin, keepers[0], big.NewInt(0))
+
+	testAddOrder(t, n, admin, kIndex, uIndex, pIndex, nt-80, nt+20, 200, 1)
+
+	time.Sleep(6 * time.Second)
+	testSubOrder(t, n, admin, kIndex, uIndex, pIndex, nt-190, nt+10, 300, 0)
+	time.Sleep(10 * time.Second)
+	testSubOrder(t, n, admin, kIndex, uIndex, pIndex, nt-80, nt+20, 200, 1)
+
+	testProWithdraw(t, n, admin, pIndex, big.NewInt(24000), big.NewInt(660))
+	testFsWithdraw(t, n, admin, kIndex, big.NewInt(0))
+	testFsWithdraw(t, n, admin, keepers[0], big.NewInt(0))
+	testFsWithdraw(t, n, admin, uIndex, big.NewInt(1000))
+
+	testWithdrawPledge(t, n, admin, aindex, 0, big.NewInt(0), false)
 
 	t.Fatal("end")
 }

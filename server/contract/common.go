@@ -3,7 +3,6 @@ package contract
 import (
 	"errors"
 	"math/big"
-	"reflect"
 	"time"
 
 	"github.com/memoio/go-settlement/utils"
@@ -114,22 +113,6 @@ func GetMap() map[utils.Address]interface{} {
 	return globalMap
 }
 
-func CopyStruct(src, dst interface{}) {
-	sval := reflect.ValueOf(src).Elem()
-	dval := reflect.ValueOf(dst).Elem()
-
-	for i := 0; i < sval.NumField(); i++ {
-		value := sval.Field(i)
-		name := sval.Type().Field(i).Name
-
-		dvalue := dval.FieldByName(name)
-		if !dvalue.IsValid() {
-			continue
-		}
-		dvalue.Set(value) //这里默认共同成员的类型一样，否则这个地方可能导致 panic，需要简单修改一下。
-	}
-}
-
 func getErcToken(addr utils.Address) (ErcToken, error) {
 	ri, ok := globalMap[addr]
 	if ok {
@@ -142,7 +125,7 @@ func getErcToken(addr utils.Address) (ErcToken, error) {
 	return nil, ErrEmpty
 }
 
-func getPledgePool(addr utils.Address) (PledgePool, error) {
+func GetPledgePool(addr utils.Address) (PledgePool, error) {
 	pi, ok := globalMap[addr]
 	if ok {
 		r, ok := pi.(PledgePool)
@@ -166,7 +149,7 @@ func getRoleMgr(addr utils.Address) (RoleMgr, error) {
 	return nil, ErrEmpty
 }
 
-func getFsMgr(addr utils.Address) (FsMgr, error) {
+func GetFsMgr(addr utils.Address) (FsMgr, error) {
 	ri, ok := globalMap[addr]
 	if ok {
 		r, ok := ri.(FsMgr)
@@ -243,6 +226,10 @@ type RoleMgr interface {
 	// 向组中添加provider
 	AddProviderToGroup(caller utils.Address, index, gIndex uint64, psign []byte) error
 
+	Recharge(caller utils.Address, user uint64, tokenIndex uint32, money *big.Int, sign []byte) error
+	WithdrawFromFs(caller utils.Address, keeperIndex uint64, tokenIndex uint32, amount *big.Int, sign []byte) error
+	ProWithdraw(caller utils.Address, proIndex uint64, tokenIndex uint32, pay, lost *big.Int, ksigns [][]byte) error
+
 	AddOrder(caller utils.Address, user, proIndex, start, end, size, nonce uint64, tokenIndex uint32, sprice *big.Int, usign, psign []byte, ksigns [][]byte) error
 	SubOrder(caller utils.Address, user, proIndex, start, end, size, nonce uint64, tokenIndex uint32, sprice *big.Int, usign, psign []byte, ksigns [][]byte) error
 
@@ -254,10 +241,8 @@ type RoleMgr interface {
 	GetTokenAddress(caller utils.Address, index uint32) (utils.Address, error)
 	GetGroupInfo(caller utils.Address, gindex uint64) (*GroupInfo, error)
 
-	GetBalance(caller utils.Address, index uint64) ([]*big.Int, error)
-
 	GetPledgeAddress(caller utils.Address) utils.Address
-	GetPledge(caller utils.Address) (*big.Int, *big.Int, []*big.Int)
+	GetPledge(caller utils.Address) (*big.Int, *big.Int)
 	GetAllTokens(caller utils.Address) []utils.Address
 	GetAllAddrs(caller utils.Address) []utils.Address
 	GetAllGroups(caller utils.Address) []*GroupInfo

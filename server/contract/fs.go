@@ -208,7 +208,7 @@ func NewFsMgr(caller utils.Address, founder, gIndex uint64) (FsMgr, error) {
 		users: make([]uint64, 0, 1),
 		fs:    make(map[uint64]*fsInfo),
 
-		keepers:    gi.keepers,
+		keepers:    gi.Keepers,
 		period:     1,
 		lastTime:   GetTime(),
 		tAcc:       make(map[uint32]*big.Int),
@@ -221,7 +221,7 @@ func NewFsMgr(caller utils.Address, founder, gIndex uint64) (FsMgr, error) {
 		tokens: make([]uint32, 0, 1),
 	}
 
-	for _, kp := range gi.keepers {
+	for _, kp := range gi.Keepers {
 		fm.count[kp] = 1
 		fm.totalCount++
 	}

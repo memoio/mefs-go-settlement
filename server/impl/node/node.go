@@ -214,6 +214,51 @@ func (n *Node) AddProviderToGroup(uid uuid.UUID, sig []byte, caller utils.Addres
 	return n.rm.AddProviderToGroup(caller, index, gIndex, psign)
 }
 
+func (n *Node) Recharge(uid uuid.UUID, sig []byte, caller utils.Address, user uint64, tokenIndex uint32, money *big.Int, sign []byte) error {
+	n.Lock()
+	defer n.Unlock()
+
+	n.count++
+
+	msg := blake2b.Sum256(uid[:])
+	ok := utils.Verify(caller, msg[:], sig)
+	if !ok {
+		return ErrRes
+	}
+
+	return n.rm.Recharge(caller, user, tokenIndex, money, sign)
+}
+
+func (n *Node) ProWithdraw(uid uuid.UUID, sig []byte, caller utils.Address, proIndex uint64, tokenIndex uint32, pay, lost *big.Int, ksigns [][]byte) error {
+	n.Lock()
+	defer n.Unlock()
+
+	n.count++
+
+	msg := blake2b.Sum256(uid[:])
+	ok := utils.Verify(caller, msg[:], sig)
+	if !ok {
+		return ErrRes
+	}
+
+	return n.rm.ProWithdraw(caller, proIndex, tokenIndex, pay, lost, ksigns)
+}
+
+func (n *Node) WithdrawFromFs(uid uuid.UUID, sig []byte, caller utils.Address, index uint64, tokenIndex uint32, amount *big.Int, sign []byte) error {
+	n.Lock()
+	defer n.Unlock()
+
+	n.count++
+
+	msg := blake2b.Sum256(uid[:])
+	ok := utils.Verify(caller, msg[:], sig)
+	if !ok {
+		return ErrRes
+	}
+
+	return n.rm.WithdrawFromFs(caller, index, tokenIndex, amount, sign)
+}
+
 func (n *Node) AddOrder(uid uuid.UUID, sig []byte, caller utils.Address, user, proIndex, start, end, size, nonce uint64, tokenIndex uint32, sprice *big.Int, usign, psign []byte, ksigns [][]byte) error {
 	n.Lock()
 	defer n.Unlock()
@@ -283,7 +328,37 @@ func (n *Node) GetBalance(caller utils.Address, index uint64) ([]*big.Int, error
 	n.RLock()
 	defer n.RUnlock()
 
-	return n.rm.GetBalance(caller, index)
+	paddr := n.rm.GetPledgeAddress(caller)
+
+	pp, err := contract.GetPledgePool(paddr)
+	if err != nil {
+		return nil, err
+	}
+
+	return pp.GetBalance(caller, index), nil
+}
+
+func (n *Node) GetBalanceInFs(caller utils.Address, index uint64, tIndex uint32) (*big.Int, *big.Int, *big.Int, error) {
+	n.RLock()
+	defer n.RUnlock()
+
+	ui, _, err := n.rm.GetInfo(caller, index)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	gi, err := n.rm.GetGroupInfo(caller, ui.GIndex)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	fm, err := contract.GetFsMgr(gi.FsAddr)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	avail, lock, paid := fm.GetBalance(caller, index, tIndex)
+	return avail, lock, paid, nil
 }
 
 func (n *Node) GetPledgeAddress(caller utils.Address) utils.Address {
@@ -297,7 +372,16 @@ func (n *Node) GetPledge(caller utils.Address) (*big.Int, *big.Int, []*big.Int) 
 	n.RLock()
 	defer n.RUnlock()
 
-	return n.rm.GetPledge(caller)
+	paddr := n.rm.GetPledgeAddress(caller)
+
+	pp, err := contract.GetPledgePool(paddr)
+	if err != nil {
+		return nil, nil, nil
+	}
+
+	k, p := n.rm.GetPledge(caller)
+
+	return k, p, pp.GetPledge(caller)
 }
 
 func (n *Node) GetAllTokens(caller utils.Address) []utils.Address {

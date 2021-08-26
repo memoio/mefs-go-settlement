@@ -13,36 +13,36 @@ const (
 )
 
 type BaseInfo struct {
-	isActive bool   // 是否激活
-	isBanned bool   // 是否禁用
+	IsActive bool   // 是否激活
+	IsBanned bool   // 是否禁用
 	RoleType uint8  // 0 account, 1, user, 2, provider, 3 keeper
-	index    uint64 // 序列号
-	gIndex   uint64 // 所属group
-	extra    []byte // for offline
+	Index    uint64 // 序列号
+	GIndex   uint64 // 所属group
+	Extra    []byte // for offline
 }
 
 type tokenInfo struct {
-	index    uint32
-	isBanned bool
+	IsBanned bool
+	Index    uint32
 }
 
 // GroupInfo has
 type GroupInfo struct {
-	isActive  bool
-	isBanned  bool     // 组是否已被禁用
-	isReady   bool     // 是否已在线下成组; 由签名触发
-	level     uint16   // security level
-	keepers   []uint64 // 里面有哪些Keeper
-	providers []uint64 // 有哪些provider
-	size      *big.Int // storeSize
-	price     *big.Int
+	IsActive  bool
+	IsBanned  bool     // 组是否已被禁用
+	IsReady   bool     // 是否已在线下成组; 由签名触发
+	Level     uint16   // security level
+	Keepers   []uint64 // 里面有哪些Keeper
+	Providers []uint64 // 有哪些provider
+	Size      *big.Int // storeSize
+	Price     *big.Int
 	FsAddr    utils.Address // fs contract addr
 }
 
-type mintInfo struct {
-	ratio    uint16
-	size     uint64
-	duration uint64
+type MintInfo struct {
+	Ratio    uint16
+	Size     uint64
+	Duration uint64
 }
 
 var _ RoleMgr = (*roleMgr)(nil)
@@ -69,7 +69,7 @@ type roleMgr struct {
 	totalPledge  *big.Int
 
 	mintLevel int
-	mint      []*mintInfo
+	mint      []*MintInfo
 	lastMint  uint64
 	start     uint64
 	size      *big.Int
@@ -84,29 +84,29 @@ func NewRoleMgr(caller, foundation, primaryToken utils.Address, kPledge, pPledge
 	// generate local utils.Address from
 	local := utils.GetContractAddress(caller, []byte("RoleMgr"))
 
-	mi := make([]*mintInfo, 4)
-	mi[0] = &mintInfo{
-		ratio:    100,
-		size:     1,
-		duration: 1,
+	mi := make([]*MintInfo, 4)
+	mi[0] = &MintInfo{
+		Ratio:    100,
+		Size:     1,
+		Duration: 1,
 	}
 
-	mi[1] = &mintInfo{
-		ratio:    120,
-		size:     100 * 1024 * 1024 * 1024 * 1024, // 100TB
-		duration: 100 * 24 * 60 * 60,              // 100 days
+	mi[1] = &MintInfo{
+		Ratio:    120,
+		Size:     100 * 1024 * 1024 * 1024 * 1024, // 100TB
+		Duration: 100 * 24 * 60 * 60,              // 100 days
 	}
 
-	mi[2] = &mintInfo{
-		ratio:    150,
-		size:     1024 * 1024 * 1024 * 1024 * 1024, // 1PB
-		duration: 100 * 24 * 60 * 60,               // 100 days
+	mi[2] = &MintInfo{
+		Ratio:    150,
+		Size:     1024 * 1024 * 1024 * 1024 * 1024, // 1PB
+		Duration: 100 * 24 * 60 * 60,               // 100 days
 	}
 
-	mi[3] = &mintInfo{
-		ratio:    200,
-		size:     10 * 1024 * 1024 * 1024 * 1024 * 1024, // 10PB
-		duration: 100 * 24 * 60 * 60,                    // 100 days
+	mi[3] = &MintInfo{
+		Ratio:    200,
+		Size:     10 * 1024 * 1024 * 1024 * 1024 * 1024, // 10PB
+		Duration: 100 * 24 * 60 * 60,                    // 100 days
 	}
 
 	rm := &roleMgr{
@@ -137,7 +137,7 @@ func NewRoleMgr(caller, foundation, primaryToken utils.Address, kPledge, pPledge
 	}
 
 	ti := &tokenInfo{
-		index: 0,
+		Index: 0,
 	}
 
 	rm.tokens = append(rm.tokens, primaryToken)
@@ -145,7 +145,7 @@ func NewRoleMgr(caller, foundation, primaryToken utils.Address, kPledge, pPledge
 
 	bi := &BaseInfo{
 		RoleType: 0,
-		index:    uint64(len(rm.addrs)),
+		Index:    uint64(len(rm.addrs)),
 	}
 
 	rm.addrs = append(rm.addrs, foundation)
@@ -191,7 +191,7 @@ func (r *roleMgr) GetAllGroups(caller utils.Address) []*GroupInfo {
 func (r *roleMgr) GetIndex(caller, addr utils.Address) (uint64, error) {
 	bi, ok := r.info[addr]
 	if ok {
-		return bi.index, nil
+		return bi.Index, nil
 	}
 
 	return 0, ErrNoSuchAddr
@@ -208,7 +208,7 @@ func (r *roleMgr) GetTokenAddress(caller utils.Address, index uint32) (utils.Add
 func (r *roleMgr) GetTokenIndex(caller, addr utils.Address) (uint32, error) {
 	ti, ok := r.tInfo[addr]
 	if ok {
-		return ti.index, nil
+		return ti.Index, nil
 	}
 
 	return 0, ErrNoSuchAddr
@@ -237,10 +237,11 @@ func (r *roleMgr) getInfo(index uint64) (*BaseInfo, error) {
 	addr := r.addrs[index]
 	bi, ok := r.info[addr]
 	if !ok {
+		log.Info(index, " is empty")
 		return nil, ErrEmpty
 	}
 
-	if bi.isBanned {
+	if bi.IsBanned {
 		return nil, ErrPermission
 	}
 
@@ -256,19 +257,19 @@ func (r *roleMgr) RegisterToken(caller, taddr utils.Address, sign []byte) error 
 		return ErrExist
 	}
 
-	pp, err := getPledgePool(r.pledge)
+	pp, err := GetPledgePool(r.pledge)
 	if err != nil {
 		return err
 	}
 
 	ti := &tokenInfo{
-		index: uint32(len(r.tokens)),
+		Index: uint32(len(r.tokens)),
 	}
 
 	r.tokens = append(r.tokens, taddr)
 	r.tInfo[taddr] = ti
 
-	return pp.AddToken(r.local, taddr, ti.index)
+	return pp.AddToken(r.local, taddr, ti.Index)
 }
 
 func (r *roleMgr) Register(caller, addr utils.Address, signature []byte) error {
@@ -281,7 +282,7 @@ func (r *roleMgr) Register(caller, addr utils.Address, signature []byte) error {
 
 	bi := &BaseInfo{
 		RoleType: 0,
-		index:    uint64(len(r.addrs)),
+		Index:    uint64(len(r.addrs)),
 	}
 
 	r.addrs = append(r.addrs, addr)
@@ -301,7 +302,7 @@ func (r *roleMgr) RegisterKeeper(caller utils.Address, index uint64, blsKey, sig
 		return ErrRoleType
 	}
 
-	pp, err := getPledgePool(r.pledge)
+	pp, err := GetPledgePool(r.pledge)
 	if err != nil {
 		return err
 	}
@@ -316,7 +317,7 @@ func (r *roleMgr) RegisterKeeper(caller utils.Address, index uint64, blsKey, sig
 	}
 
 	bi.RoleType = RoleKeeper
-	bi.extra = blsKey
+	bi.Extra = blsKey
 
 	return nil
 }
@@ -333,7 +334,7 @@ func (r *roleMgr) RegisterProvider(caller utils.Address, index uint64, signature
 		return ErrRoleType
 	}
 
-	pp, err := getPledgePool(r.pledge)
+	pp, err := GetPledgePool(r.pledge)
 	if err != nil {
 		return err
 	}
@@ -352,7 +353,7 @@ func (r *roleMgr) RegisterProvider(caller utils.Address, index uint64, signature
 	return nil
 }
 
-func (r *roleMgr) RegisterUser(caller utils.Address, index, gIndex uint64, payToken uint32, blsKey, sign []byte) error {
+func (r *roleMgr) RegisterUser(caller utils.Address, index, GIndex uint64, payToken uint32, blsKey, sign []byte) error {
 	// verify sign
 
 	bi, err := r.getInfo(index)
@@ -366,16 +367,16 @@ func (r *roleMgr) RegisterUser(caller utils.Address, index, gIndex uint64, payTo
 	}
 
 	// verify payToken
-	if gIndex > uint64(len(r.groups)) {
+	if GIndex > uint64(len(r.groups)) {
 		return ErrInput
 	}
 
-	gi := r.groups[gIndex]
-	if !gi.isActive || gi.isBanned {
+	gi := r.groups[GIndex]
+	if !gi.IsActive || gi.IsBanned {
 		return ErrPermission
 	}
 
-	fm, err := getFsMgr(gi.FsAddr)
+	fm, err := GetFsMgr(gi.FsAddr)
 	if err != nil {
 		return err
 	}
@@ -386,34 +387,13 @@ func (r *roleMgr) RegisterUser(caller utils.Address, index, gIndex uint64, payTo
 	}
 
 	bi.RoleType = RoleUser
-	bi.gIndex = gIndex
-	bi.extra = blsKey
+	bi.GIndex = GIndex
+	bi.Extra = blsKey
 
 	return nil
 }
 
 // group related
-
-func (r *roleMgr) GetKeepersInGroup(caller utils.Address, index uint64) ([]uint64, error) {
-	if index >= uint64(len(r.groups)) {
-		return nil, ErrInput
-	}
-
-	g := r.groups[index]
-
-	return g.keepers, nil
-}
-
-func (r *roleMgr) GetProvidersInGroup(caller utils.Address, index uint64) ([]uint64, error) {
-	if index >= uint64(len(r.groups)) {
-		return nil, ErrInput
-	}
-
-	g := r.groups[index]
-
-	return g.providers, nil
-}
-
 func (r *roleMgr) GetGroupInfo(caller utils.Address, index uint64) (*GroupInfo, error) {
 	if index >= uint64(len(r.groups)) {
 		return nil, ErrInput
@@ -428,7 +408,7 @@ func (r *roleMgr) getGroupInfo(index uint64) (*GroupInfo, error) {
 
 	gi := r.groups[index]
 
-	if !gi.isActive || gi.isBanned {
+	if !gi.IsActive || gi.IsBanned {
 		return nil, ErrPermission
 	}
 
@@ -446,7 +426,7 @@ func (r *roleMgr) CreateGroup(caller utils.Address, inds []uint64, level uint16,
 		}
 
 		// have been in some group
-		if ki.isActive {
+		if ki.IsActive {
 			return ErrPermission
 		}
 
@@ -455,46 +435,46 @@ func (r *roleMgr) CreateGroup(caller utils.Address, inds []uint64, level uint16,
 		}
 	}
 
-	gIndex := len(r.groups)
+	GIndex := len(r.groups)
 
 	gi := &GroupInfo{
-		level:     level,
-		keepers:   inds,
-		providers: make([]uint64, 0, 1),
-		size:      big.NewInt(0),
-		price:     big.NewInt(0),
+		Level:     level,
+		Keepers:   inds,
+		Providers: make([]uint64, 0, 1),
+		Size:      big.NewInt(0),
+		Price:     big.NewInt(0),
 	}
 
 	r.groups = append(r.groups, gi)
 
 	for _, index := range inds {
 		ki, _ := r.getInfo(index)
-		ki.isActive = true
-		ki.gIndex = uint64(gIndex)
+		ki.IsActive = true
+		ki.GIndex = uint64(GIndex)
 	}
 
-	fs, err := NewFsMgr(r.local, 0, uint64(gIndex))
+	fs, err := NewFsMgr(r.local, 0, uint64(GIndex))
 	if err != nil {
 		return err
 	}
 
 	gi.FsAddr = fs.GetContractAddress()
 
-	if len(gi.keepers) >= int(level) {
-		gi.isActive = true
+	if len(gi.Keepers) >= int(level) {
+		gi.IsActive = true
 	}
 
 	return nil
 }
 
-func (r *roleMgr) AddKeeperToGroup(caller utils.Address, index, gIndex uint64, ksign, asign []byte) error {
+func (r *roleMgr) AddKeeperToGroup(caller utils.Address, index, GIndex uint64, ksign, asign []byte) error {
 	// verify asign
-	if len(r.groups) <= int(gIndex) {
+	if len(r.groups) <= int(GIndex) {
 		return ErrInput
 	}
 
-	gi := r.groups[gIndex]
-	if gi.isBanned {
+	gi := r.groups[GIndex]
+	if gi.IsBanned {
 		return ErrPermission
 	}
 
@@ -508,11 +488,11 @@ func (r *roleMgr) AddKeeperToGroup(caller utils.Address, index, gIndex uint64, k
 	}
 
 	// have been in some group
-	if ki.isActive {
+	if ki.IsActive {
 		return ErrPermission
 	}
 
-	fsMgr, err := getFsMgr(gi.FsAddr)
+	fsMgr, err := GetFsMgr(gi.FsAddr)
 	if err != nil {
 		return err
 	}
@@ -522,25 +502,25 @@ func (r *roleMgr) AddKeeperToGroup(caller utils.Address, index, gIndex uint64, k
 		return err
 	}
 
-	gi.keepers = append(gi.keepers, index)
-	ki.gIndex = gIndex
-	ki.isActive = true
+	gi.Keepers = append(gi.Keepers, index)
+	ki.GIndex = GIndex
+	ki.IsActive = true
 
-	if len(gi.keepers) >= int(gi.level) {
-		gi.isActive = true
+	if len(gi.Keepers) >= int(gi.Level) {
+		gi.IsActive = true
 	}
 
 	return nil
 }
 
-func (r *roleMgr) AddProviderToGroup(caller utils.Address, index, gIndex uint64, sign []byte) error {
+func (r *roleMgr) AddProviderToGroup(caller utils.Address, index, GIndex uint64, sign []byte) error {
 	// verify sign by addr[index]
-	if len(r.groups) <= int(gIndex) {
+	if len(r.groups) <= int(GIndex) {
 		return ErrInput
 	}
 
-	gi := r.groups[gIndex]
-	if gi.isBanned {
+	gi := r.groups[GIndex]
+	if gi.IsBanned {
 		return ErrPermission
 	}
 
@@ -550,7 +530,7 @@ func (r *roleMgr) AddProviderToGroup(caller utils.Address, index, gIndex uint64,
 	}
 
 	// have been in some group
-	if pi.isActive {
+	if pi.IsActive {
 		return ErrPermission
 	}
 
@@ -558,31 +538,17 @@ func (r *roleMgr) AddProviderToGroup(caller utils.Address, index, gIndex uint64,
 		return ErrRoleType
 	}
 
-	gi.providers = append(gi.providers, index)
-	pi.gIndex = gIndex
-	pi.isActive = true
+	gi.Providers = append(gi.Providers, index)
+	pi.GIndex = GIndex
+	pi.IsActive = true
 
 	return nil
 }
 
 // balance related
 
-func (r *roleMgr) GetPledge(caller utils.Address) (*big.Int, *big.Int, []*big.Int) {
-	pp, err := getPledgePool(r.pledge)
-	if err != nil {
-		return r.pledgeKeeper, r.pledgePro, nil
-	}
-
-	return r.pledgeKeeper, r.pledgePro, pp.GetPledge(caller)
-}
-
-func (r *roleMgr) GetBalance(caller utils.Address, index uint64) ([]*big.Int, error) {
-	pp, err := getPledgePool(r.pledge)
-	if err != nil {
-		return nil, err
-	}
-
-	return pp.GetBalance(r.local, index), nil
+func (r *roleMgr) GetPledge(caller utils.Address) (*big.Int, *big.Int) {
+	return r.pledgeKeeper, r.pledgePro
 }
 
 func (r *roleMgr) SetPledgeMoney(caller utils.Address, kPledge, pPledge *big.Int, signature []byte) error {
@@ -602,11 +568,11 @@ func (r *roleMgr) Pledge(caller utils.Address, index uint64, money *big.Int, sig
 		return err
 	}
 
-	if bi.isBanned {
+	if bi.IsBanned {
 		return ErrPermission
 	}
 
-	pp, err := getPledgePool(r.pledge)
+	pp, err := GetPledgePool(r.pledge)
 	if err != nil {
 		return err
 	}
@@ -624,11 +590,11 @@ func (r *roleMgr) Withdraw(caller utils.Address, index uint64, tokenIndex uint32
 		return err
 	}
 
-	if bi.isBanned {
+	if bi.IsBanned {
 		return ErrPermission
 	}
 
-	pp, err := getPledgePool(r.pledge)
+	pp, err := GetPledgePool(r.pledge)
 	if err != nil {
 		return err
 	}
@@ -641,6 +607,75 @@ func (r *roleMgr) Withdraw(caller utils.Address, index uint64, tokenIndex uint32
 	}
 
 	return pp.Withdraw(r.local, index, tokenIndex, money, lock)
+}
+
+func (r *roleMgr) Recharge(caller utils.Address, user uint64, tokenIndex uint32, money *big.Int, sign []byte) error {
+	if tokenIndex >= uint32(len(r.tokens)) {
+		return ErrInput
+	}
+
+	ui, err := r.getInfo(user)
+	if err != nil {
+		return err
+	}
+
+	gi, err := r.getGroupInfo(ui.GIndex)
+	if err != nil {
+		return err
+	}
+
+	fm, err := GetFsMgr(gi.FsAddr)
+	if err != nil {
+		return err
+	}
+
+	return fm.Recharge(r.local, user, tokenIndex, money, sign)
+}
+
+func (r *roleMgr) ProWithdraw(caller utils.Address, proIndex uint64, tokenIndex uint32, pay, lost *big.Int, ksigns [][]byte) error {
+	if tokenIndex >= uint32(len(r.tokens)) {
+		return ErrInput
+	}
+
+	ui, err := r.getInfo(proIndex)
+	if err != nil {
+		return err
+	}
+
+	gi, err := r.getGroupInfo(ui.GIndex)
+	if err != nil {
+		return err
+	}
+
+	fm, err := GetFsMgr(gi.FsAddr)
+	if err != nil {
+		return err
+	}
+
+	return fm.ProWithdraw(r.local, proIndex, tokenIndex, pay, lost, nil)
+}
+
+func (r *roleMgr) WithdrawFromFs(caller utils.Address, index uint64, tokenIndex uint32, amount *big.Int, sign []byte) error {
+	if tokenIndex >= uint32(len(r.tokens)) {
+		return ErrInput
+	}
+
+	ui, err := r.getInfo(index)
+	if err != nil {
+		return err
+	}
+
+	gi, err := r.getGroupInfo(ui.GIndex)
+	if err != nil {
+		return err
+	}
+
+	fm, err := GetFsMgr(gi.FsAddr)
+	if err != nil {
+		return err
+	}
+
+	return fm.Withdraw(r.local, index, tokenIndex, amount, sign)
 }
 
 // order ops
@@ -662,19 +697,19 @@ func (r *roleMgr) AddOrder(caller utils.Address, user, proIndex, start, end, siz
 	kindex := uint64(0)
 	ki, ok := r.info[caller]
 	if ok {
-		kindex = ki.index
+		kindex = ki.Index
 	}
 
-	if pi.gIndex != ui.gIndex {
+	if pi.GIndex != ui.GIndex {
 		return ErrInput
 	}
 
-	gi, err := r.getGroupInfo(ui.gIndex)
+	gi, err := r.getGroupInfo(ui.GIndex)
 	if err != nil {
 		return err
 	}
 
-	fm, err := getFsMgr(gi.FsAddr)
+	fm, err := GetFsMgr(gi.FsAddr)
 	if err != nil {
 		return err
 	}
@@ -690,8 +725,8 @@ func (r *roleMgr) AddOrder(caller utils.Address, user, proIndex, start, end, siz
 
 	// 增发
 	if tokenIndex == 0 {
-		gi.size.Add(gi.size, new(big.Int).SetUint64(size))
-		gi.price.Add(gi.price, sprice)
+		gi.Size.Add(gi.Size, new(big.Int).SetUint64(size))
+		gi.Price.Add(gi.Price, sprice)
 
 		ntime := GetTime()
 		dur := new(big.Int).SetUint64(ntime - r.lastMint)
@@ -709,12 +744,12 @@ func (r *roleMgr) AddOrder(caller utils.Address, user, proIndex, start, end, siz
 		log.Info("AddOrder: send to pledge: ", reward)
 
 		for i := r.mintLevel + 1; i < len(r.mint); i++ {
-			esize := new(big.Int).SetUint64(r.mint[i].size)
+			esize := new(big.Int).SetUint64(r.mint[i].Size)
 			if esize.Cmp(r.size) < 0 {
 				esize.Set(r.size)
 			}
 
-			dur := new(big.Int).SetUint64(r.mint[i].duration)
+			dur := new(big.Int).SetUint64(r.mint[i].Duration)
 
 			if r.spaceTime.Div(r.spaceTime, esize).Cmp(dur) >= 0 {
 				r.mintLevel = i
@@ -732,7 +767,7 @@ func (r *roleMgr) AddOrder(caller utils.Address, user, proIndex, start, end, siz
 		pay := new(big.Int).Mul(sprice, new(big.Int).SetUint64(end-start))
 		r.totalPay.Add(r.totalPay, pay)
 
-		reward.Mul(reward, new(big.Int).SetUint64(uint64(r.mint[r.mintLevel].ratio)))
+		reward.Mul(reward, new(big.Int).SetUint64(uint64(r.mint[r.mintLevel].Ratio)))
 		reward.Div(reward, new(big.Int).SetUint64(100))
 
 		err = sendBalance(r.tokens[0], r.local, r.pledge, reward)
@@ -768,11 +803,11 @@ func (r *roleMgr) SubOrder(caller utils.Address, user, proIndex, start, end, siz
 		return ErrRoleType
 	}
 
-	if pi.gIndex != ui.gIndex {
+	if pi.GIndex != ui.GIndex {
 		return ErrInput
 	}
 
-	gi, err := r.getGroupInfo(ui.gIndex)
+	gi, err := r.getGroupInfo(ui.GIndex)
 	if err != nil {
 		return err
 	}
@@ -780,10 +815,10 @@ func (r *roleMgr) SubOrder(caller utils.Address, user, proIndex, start, end, siz
 	kindex := uint64(0)
 	ki, ok := r.info[caller]
 	if ok {
-		kindex = ki.index
+		kindex = ki.Index
 	}
 
-	fm, err := getFsMgr(gi.FsAddr)
+	fm, err := GetFsMgr(gi.FsAddr)
 	if err != nil {
 		return err
 	}
@@ -793,13 +828,10 @@ func (r *roleMgr) SubOrder(caller utils.Address, user, proIndex, start, end, siz
 		return err
 	}
 
-	gi.size.Sub(gi.size, new(big.Int).SetUint64(size))
-	gi.price.Sub(gi.price, sprice)
+	gi.Size.Sub(gi.Size, new(big.Int).SetUint64(size))
+	gi.Price.Sub(gi.Price, sprice)
 
 	if tokenIndex == 0 {
-		gi.size.Sub(gi.size, new(big.Int).SetUint64(size))
-		gi.price.Sub(gi.price, sprice)
-
 		r.price.Sub(r.price, sprice)
 		r.size.Sub(r.size, new(big.Int).SetUint64(size))
 	}

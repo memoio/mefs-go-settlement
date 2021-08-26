@@ -9,21 +9,6 @@ import (
 	"github.com/memoio/go-settlement/utils"
 )
 
-func TestCopy(t *testing.T) {
-	src := GroupInfo{
-		isActive:  true,
-		level:     10,
-		providers: []uint64{1, 2},
-		price:     big.NewInt(100),
-		FsAddr:    utils.BytesToAddress([]byte{}),
-	}
-
-	to := GroupInfo{}
-	CopyStruct(src, to)
-	t.Log(to.level, to.price)
-	t.Fatal("end")
-}
-
 func TestErc(t *testing.T) {
 	testErc(t)
 }
@@ -183,7 +168,7 @@ func testPledge(t *testing.T, rAddr utils.Address, amount *big.Int) uint64 {
 		t.Fatal(err)
 	}
 
-	if ui.index != uint64(len(addrs)) {
+	if ui.Index != uint64(len(addrs)) {
 		t.Fatal("register fails")
 	}
 
@@ -191,26 +176,33 @@ func testPledge(t *testing.T, rAddr utils.Address, amount *big.Int) uint64 {
 
 	t.Log("pledge has:", getBalance(ts[0], rm.GetPledgeAddress(userAddr)))
 
-	err = rm.Pledge(userAddr, ui.index, amount, nil)
+	err = rm.Pledge(userAddr, ui.Index, amount, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	t.Log("after pledge has:", getBalance(ts[0], rm.GetPledgeAddress(userAddr)))
 
-	bal, err := rm.GetBalance(userAddr, ui.index)
+	pAddr := rm.GetPledgeAddress(userAddr)
+
+	pp, err := GetPledgePool(pAddr)
 	if err != nil {
 		t.Fatal(err)
+	}
+
+	bal := pp.GetBalance(userAddr, ui.Index)
+	if len(bal) == 0 {
+		t.Fatal("pledge fail")
 	}
 
 	if bal[0].Cmp(amount) != 0 {
 		t.Fatal("pledge fail:", bal[0], amount)
 	}
 
-	return ui.index
+	return ui.Index
 }
 
-func testWithdrawPledge(t *testing.T, rAddr utils.Address, index uint64, tIndex uint32, send bool) {
+func testWithdrawPledge(t *testing.T, rAddr utils.Address, Index uint64, tIndex uint32, send bool) {
 	rm, err := getRoleMgr(rAddr)
 	if err != nil {
 		t.Fatal(err)
@@ -223,7 +215,7 @@ func testWithdrawPledge(t *testing.T, rAddr utils.Address, index uint64, tIndex 
 		t.Fatal(err)
 	}
 
-	ui, userAddr, err := rm.GetInfo(rm.GetOwnerAddress(), index)
+	ui, userAddr, err := rm.GetInfo(rm.GetOwnerAddress(), Index)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -235,20 +227,23 @@ func testWithdrawPledge(t *testing.T, rAddr utils.Address, index uint64, tIndex 
 		}
 	}
 
-	bal, err := rm.GetBalance(userAddr, ui.index)
+	pAddr := rm.GetPledgeAddress(userAddr)
+
+	pp, err := GetPledgePool(pAddr)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if len(bal) != 2 {
-		t.Fatal("get balance fails")
+	bal := pp.GetBalance(userAddr, ui.Index)
+	if len(bal) == 0 {
+		t.Fatal("pledge fail")
 	}
 
 	before := et.BalanceOf(userAddr, userAddr)
 
-	_, _, bres := rm.GetPledge(userAddr)
+	bres := pp.GetPledge(userAddr)
 
-	err = rm.Withdraw(userAddr, ui.index, tIndex, big.NewInt(0), nil)
+	err = rm.Withdraw(userAddr, ui.Index, tIndex, big.NewInt(0), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -256,29 +251,30 @@ func testWithdrawPledge(t *testing.T, rAddr utils.Address, index uint64, tIndex 
 	after := et.BalanceOf(userAddr, userAddr)
 	getM := new(big.Int).Sub(after, before)
 
-	kp, pp, res := rm.GetPledge(userAddr)
+	res := pp.GetPledge(userAddr)
 	val := new(big.Int).Sub(bres[tIndex], res[tIndex])
 	// 合约中少的金额和user账户多的金额匹配
 	if getM.Cmp(val) != 0 {
-		t.Log(index, before, after)
-		t.Fatal(index, "withdraw fails: ", getM, bres[tIndex], res[tIndex])
+		t.Log(Index, before, after)
+		t.Fatal(Index, "withdraw fails: ", getM, bres[tIndex], res[tIndex])
 	}
 
+	kposit, pposit := rm.GetPledge(userAddr)
 	if tIndex == 0 {
 		if ui.RoleType == RoleKeeper {
-			getM.Add(getM, kp)
+			getM.Add(getM, kposit)
 		} else if ui.RoleType == RoleProvider {
-			getM.Add(getM, pp)
+			getM.Add(getM, pposit)
 		}
 	}
 
 	//  Withdraw前用户的余额=取出的余额+最小质押额
 	if getM.Cmp(bal[tIndex]) != 0 {
-		t.Log(index, before, after)
+		t.Log(Index, before, after)
 		t.Fatal("withdraw fails: ", getM, bal[tIndex])
 	}
 
-	t.Log(index, "withdraw: ", getM)
+	t.Log(Index, "withdraw: ", getM)
 }
 
 func testCreateKeeper(t *testing.T, rAddr utils.Address) uint64 {
@@ -288,15 +284,15 @@ func testCreateKeeper(t *testing.T, rAddr utils.Address) uint64 {
 		t.Fatal(err)
 	}
 
-	kPledge, _, _ := rm.GetPledge(rAddr)
-	index := testPledge(t, rAddr, new(big.Int).Mul(kPledge, big.NewInt(10)))
+	kPledge, _ := rm.GetPledge(rAddr)
+	Index := testPledge(t, rAddr, new(big.Int).Mul(kPledge, big.NewInt(10)))
 
-	err = rm.RegisterKeeper(rm.GetOwnerAddress(), index, nil, nil)
+	err = rm.RegisterKeeper(rm.GetOwnerAddress(), Index, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	return index
+	return Index
 }
 
 func testCreateProvider(t *testing.T, rAddr utils.Address) uint64 {
@@ -305,15 +301,15 @@ func testCreateProvider(t *testing.T, rAddr utils.Address) uint64 {
 		t.Fatal(err)
 	}
 
-	_, pPledge, _ := rm.GetPledge(rAddr)
-	index := testPledge(t, rAddr, new(big.Int).Mul(pPledge, big.NewInt(10)))
+	_, pPledge := rm.GetPledge(rAddr)
+	Index := testPledge(t, rAddr, new(big.Int).Mul(pPledge, big.NewInt(10)))
 
-	err = rm.RegisterProvider(rm.GetOwnerAddress(), index, nil)
+	err = rm.RegisterProvider(rm.GetOwnerAddress(), Index, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	return index
+	return Index
 }
 
 func testCreateGroup(t *testing.T, rAddr utils.Address, inds []uint64) uint64 {
@@ -328,7 +324,7 @@ func testCreateGroup(t *testing.T, rAddr utils.Address, inds []uint64) uint64 {
 	}
 
 	gs := rm.GetAllGroups(rm.GetOwnerAddress())
-	if len(gs) == 0 || gs[len(gs)-1].level != 7 || !gs[len(gs)-1].isActive {
+	if len(gs) == 0 || gs[len(gs)-1].Level != 7 || !gs[len(gs)-1].IsActive {
 		t.Fatal("create group fails")
 	}
 
@@ -352,7 +348,7 @@ func testAddKeeper(t *testing.T, rAddr utils.Address, gIndex uint64) uint64 {
 		t.Fatal(err)
 	}
 
-	ks := gi.keepers
+	ks := gi.Keepers
 
 	if ks[len(ks)-1] != kindex {
 		t.Fatal("add keeper fails")
@@ -378,7 +374,7 @@ func testAddProvider(t *testing.T, rAddr utils.Address, gIndex uint64) uint64 {
 		t.Fatal(err)
 	}
 
-	ps := gi.providers
+	ps := gi.Providers
 
 	if ps[len(ps)-1] != pindex {
 		t.Fatal("add provider fails")
@@ -411,12 +407,12 @@ func testCreateUser(t *testing.T, rAddr utils.Address, gIndex uint64) uint64 {
 		t.Fatal(err)
 	}
 
-	err = rm.RegisterUser(userAddr, ui.index, 0, 0, nil, nil)
+	err = rm.RegisterUser(userAddr, ui.Index, 0, 0, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	ui, _, err = rm.GetInfo(userAddr, ui.index)
+	ui, _, err = rm.GetInfo(userAddr, ui.Index)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -433,22 +429,22 @@ func testCreateUser(t *testing.T, rAddr utils.Address, gIndex uint64) uint64 {
 	pt.Transfer(pt.GetOwnerAddress(), userAddr, big.NewInt(1000000000000))
 	pt.Approve(userAddr, gi.FsAddr, big.NewInt(1000000000000))
 
-	fm, err := getFsMgr(gi.FsAddr)
+	fm, err := GetFsMgr(gi.FsAddr)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	err = fm.Recharge(userAddr, ui.index, 0, big.NewInt(1000000000000), nil)
+	err = fm.Recharge(userAddr, ui.Index, 0, big.NewInt(1000000000000), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	avail, _, _ := fm.GetBalance(userAddr, ui.index, 0)
+	avail, _, _ := fm.GetBalance(userAddr, ui.Index, 0)
 	if avail.Cmp(big.NewInt(1000000000000)) != 0 {
 		t.Fatal("recharge fails")
 	}
 
-	return ui.index
+	return ui.Index
 }
 
 func testAddOrder(t *testing.T, rAddr utils.Address, kIndex, userIndex, proIndex, start, end, size, nonce uint64) {
@@ -466,7 +462,7 @@ func testAddOrder(t *testing.T, rAddr utils.Address, kIndex, userIndex, proIndex
 	if err != nil {
 		t.Fatal(err)
 	}
-	fm, err := getFsMgr(gi.FsAddr)
+	fm, err := GetFsMgr(gi.FsAddr)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -555,7 +551,7 @@ func testProWithdraw(t *testing.T, rAddr utils.Address, proIndex uint64, amount,
 	if err != nil {
 		t.Fatal(err)
 	}
-	fm, err := getFsMgr(gi.FsAddr)
+	fm, err := GetFsMgr(gi.FsAddr)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -617,7 +613,7 @@ func testFsWithdraw(t *testing.T, rAddr utils.Address, kIndex uint64, amount *bi
 	if err != nil {
 		t.Fatal(err)
 	}
-	fm, err := getFsMgr(gi.FsAddr)
+	fm, err := GetFsMgr(gi.FsAddr)
 	if err != nil {
 		t.Fatal(err)
 	}
