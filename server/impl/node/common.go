@@ -45,14 +45,17 @@ type ChainAPI interface {
 	SubOrder(uid uuid.UUID, sig []byte, caller utils.Address, user, proIndex, start, end, size, nonce uint64, tokenIndex uint32, sprice *big.Int, usign, psign []byte, ksigns [][]byte) error
 
 	GetIndex(caller, addr utils.Address) (uint64, error)
-	GetInfo(caller utils.Address, index uint64) (*contract.BaseInfo, utils.Address, error)
+	GetAddr(caller utils.Address, index uint64) (utils.Address, error)
+	GetInfo(caller utils.Address, index uint64) (*contract.BaseInfo, error)
 	GetTokenIndex(caller, taddr utils.Address) (uint32, error)
 	GetTokenAddress(caller utils.Address, index uint32) (utils.Address, error)
 	GetGroupInfo(caller utils.Address, gindex uint64) (*contract.GroupInfo, error)
 	GetBalance(caller utils.Address, index uint64) ([]*big.Int, error)
-	GetBalanceInFs(caller utils.Address, index uint64, tIndex uint32) (*big.Int, *big.Int, *big.Int, error)
+	GetBalanceInFs(caller utils.Address, index uint64, tIndex uint32) ([]*big.Int, error)
 	GetPledgeAddress(caller utils.Address) utils.Address
-	GetPledge(caller utils.Address) (*big.Int, *big.Int, []*big.Int)
+	GetKeeperPledge(caller utils.Address) *big.Int
+	GetProviderPledge(caller utils.Address) *big.Int
+	GetPledgeBalance(caller utils.Address) []*big.Int
 	GetAllTokens(caller utils.Address) []utils.Address
 	GetAllAddrs(caller utils.Address) []utils.Address
 	GetAllGroups(caller utils.Address) []*contract.GroupInfo

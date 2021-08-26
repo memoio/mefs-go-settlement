@@ -50,19 +50,22 @@ type FullNodeStruct struct {
 		AddOrder           func(uid uuid.UUID, sig []byte, caller utils.Address, user, proIndex, start, end, size, nonce uint64, tokenIndex uint32, sprice *big.Int, usign, psign []byte, ksigns [][]byte) error
 		SubOrder           func(uid uuid.UUID, sig []byte, caller utils.Address, user, proIndex, start, end, size, nonce uint64, tokenIndex uint32, sprice *big.Int, usign, psign []byte, ksigns [][]byte) error
 
-		GetIndex         func(caller, addr utils.Address) (uint64, error)
-		GetInfo          func(caller utils.Address, index uint64) (*contract.BaseInfo, utils.Address, error)
-		GetTokenIndex    func(caller, taddr utils.Address) (uint32, error)
-		GetTokenAddress  func(caller utils.Address, index uint32) (utils.Address, error)
-		GetGroupInfo     func(caller utils.Address, gindex uint64) (*contract.GroupInfo, error)
-		GetBalance       func(caller utils.Address, index uint64) ([]*big.Int, error)
-		GetBalanceInFs   func(caller utils.Address, index uint64, tIndex uint32) (*big.Int, *big.Int, *big.Int, error)
-		GetPledgeAddress func(caller utils.Address) utils.Address
-		GetPledge        func(caller utils.Address) (*big.Int, *big.Int, []*big.Int)
-		GetAllTokens     func(caller utils.Address) []utils.Address
-		GetAllAddrs      func(caller utils.Address) []utils.Address
-		GetAllGroups     func(caller utils.Address) []*contract.GroupInfo
-		GetFoundation    func(caller utils.Address) utils.Address
+		GetIndex          func(caller, addr utils.Address) (uint64, error)
+		GetAddr           func(caller utils.Address, index uint64) (utils.Address, error)
+		GetInfo           func(caller utils.Address, index uint64) (*contract.BaseInfo, error)
+		GetTokenIndex     func(caller, taddr utils.Address) (uint32, error)
+		GetTokenAddress   func(caller utils.Address, index uint32) (utils.Address, error)
+		GetGroupInfo      func(caller utils.Address, gindex uint64) (*contract.GroupInfo, error)
+		GetBalance        func(caller utils.Address, index uint64) ([]*big.Int, error)
+		GetBalanceInFs    func(caller utils.Address, index uint64, tIndex uint32) ([]*big.Int, error)
+		GetPledgeAddress  func(caller utils.Address) utils.Address
+		GetKeeperPledge   func(caller utils.Address) *big.Int
+		GetProviderPledge func(caller utils.Address) *big.Int
+		GetPledgeBalance  func(caller utils.Address) []*big.Int
+		GetAllTokens      func(caller utils.Address) []utils.Address
+		GetAllAddrs       func(caller utils.Address) []utils.Address
+		GetAllGroups      func(caller utils.Address) []*contract.GroupInfo
+		GetFoundation     func(caller utils.Address) utils.Address
 	}
 }
 
@@ -182,7 +185,11 @@ func (s *FullNodeStruct) GetIndex(caller, addr utils.Address) (uint64, error) {
 	return s.Internal.GetIndex(caller, addr)
 }
 
-func (s *FullNodeStruct) GetInfo(caller utils.Address, index uint64) (*contract.BaseInfo, utils.Address, error) {
+func (s *FullNodeStruct) GetAddr(caller utils.Address, index uint64) (utils.Address, error) {
+	return s.Internal.GetAddr(caller, index)
+}
+
+func (s *FullNodeStruct) GetInfo(caller utils.Address, index uint64) (*contract.BaseInfo, error) {
 	return s.Internal.GetInfo(caller, index)
 }
 
@@ -202,7 +209,7 @@ func (s *FullNodeStruct) GetBalance(caller utils.Address, index uint64) ([]*big.
 	return s.Internal.GetBalance(caller, index)
 }
 
-func (s *FullNodeStruct) GetBalanceInFs(caller utils.Address, index uint64, tIndex uint32) (*big.Int, *big.Int, *big.Int, error) {
+func (s *FullNodeStruct) GetBalanceInFs(caller utils.Address, index uint64, tIndex uint32) ([]*big.Int, error) {
 	return s.Internal.GetBalanceInFs(caller, index, tIndex)
 }
 
@@ -210,8 +217,16 @@ func (s *FullNodeStruct) GetPledgeAddress(caller utils.Address) utils.Address {
 	return s.Internal.GetPledgeAddress(caller)
 }
 
-func (s *FullNodeStruct) GetPledge(caller utils.Address) (*big.Int, *big.Int, []*big.Int) {
-	return s.Internal.GetPledge(caller)
+func (s *FullNodeStruct) GetKeeperPledge(caller utils.Address) *big.Int {
+	return s.Internal.GetKeeperPledge(caller)
+}
+
+func (s *FullNodeStruct) GetProviderPledge(caller utils.Address) *big.Int {
+	return s.Internal.GetProviderPledge(caller)
+}
+
+func (s *FullNodeStruct) GetPledgeBalance(caller utils.Address) []*big.Int {
+	return s.Internal.GetPledgeBalance(caller)
 }
 
 func (s *FullNodeStruct) GetAllTokens(caller utils.Address) []utils.Address {

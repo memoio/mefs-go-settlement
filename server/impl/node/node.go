@@ -296,11 +296,20 @@ func (n *Node) GetIndex(caller, addr utils.Address) (uint64, error) {
 	return n.rm.GetIndex(caller, addr)
 }
 
-func (n *Node) GetInfo(caller utils.Address, index uint64) (*contract.BaseInfo, utils.Address, error) {
+func (n *Node) GetAddr(caller utils.Address, index uint64) (utils.Address, error) {
 	n.RLock()
 	defer n.RUnlock()
 
-	return n.rm.GetInfo(caller, index)
+	_, addr, err := n.rm.GetInfo(caller, index)
+	return addr, err
+}
+
+func (n *Node) GetInfo(caller utils.Address, index uint64) (*contract.BaseInfo, error) {
+	n.RLock()
+	defer n.RUnlock()
+
+	bs, _, err := n.rm.GetInfo(caller, index)
+	return bs, err
 }
 
 func (n *Node) GetTokenIndex(caller, taddr utils.Address) (uint32, error) {
@@ -338,27 +347,32 @@ func (n *Node) GetBalance(caller utils.Address, index uint64) ([]*big.Int, error
 	return pp.GetBalance(caller, index), nil
 }
 
-func (n *Node) GetBalanceInFs(caller utils.Address, index uint64, tIndex uint32) (*big.Int, *big.Int, *big.Int, error) {
+func (n *Node) GetBalanceInFs(caller utils.Address, index uint64, tIndex uint32) ([]*big.Int, error) {
 	n.RLock()
 	defer n.RUnlock()
 
 	ui, _, err := n.rm.GetInfo(caller, index)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, err
 	}
 
 	gi, err := n.rm.GetGroupInfo(caller, ui.GIndex)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, err
 	}
 
 	fm, err := contract.GetFsMgr(gi.FsAddr)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, err
 	}
 
 	avail, lock, paid := fm.GetBalance(caller, index, tIndex)
-	return avail, lock, paid, nil
+	res := make([]*big.Int, 3)
+	res[0] = avail
+	res[1] = lock
+	res[2] = paid
+
+	return res, nil
 }
 
 func (n *Node) GetPledgeAddress(caller utils.Address) utils.Address {
@@ -368,7 +382,25 @@ func (n *Node) GetPledgeAddress(caller utils.Address) utils.Address {
 	return n.rm.GetPledgeAddress(caller)
 }
 
-func (n *Node) GetPledge(caller utils.Address) (*big.Int, *big.Int, []*big.Int) {
+func (n *Node) GetKeeperPledge(caller utils.Address) *big.Int {
+	n.RLock()
+	defer n.RUnlock()
+
+	k, _ := n.rm.GetPledge(caller)
+
+	return k
+}
+
+func (n *Node) GetProviderPledge(caller utils.Address) *big.Int {
+	n.RLock()
+	defer n.RUnlock()
+
+	_, p := n.rm.GetPledge(caller)
+
+	return p
+}
+
+func (n *Node) GetPledgeBalance(caller utils.Address) []*big.Int {
 	n.RLock()
 	defer n.RUnlock()
 
@@ -376,12 +408,10 @@ func (n *Node) GetPledge(caller utils.Address) (*big.Int, *big.Int, []*big.Int) 
 
 	pp, err := contract.GetPledgePool(paddr)
 	if err != nil {
-		return nil, nil, nil
+		return nil
 	}
 
-	k, p := n.rm.GetPledge(caller)
-
-	return k, p, pp.GetPledge(caller)
+	return pp.GetPledge(caller)
 }
 
 func (n *Node) GetAllTokens(caller utils.Address) []utils.Address {

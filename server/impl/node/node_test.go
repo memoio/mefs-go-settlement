@@ -142,7 +142,7 @@ func testPledge(t *testing.T, n *Node, admin utils.Address, amount *big.Int) uin
 }
 
 func testWithdrawPledge(t *testing.T, n *Node, admin utils.Address, index uint64, tIndex uint32, amount *big.Int, send bool) {
-	_, uAddr, err := n.GetInfo(admin, index)
+	uAddr, err := n.GetAddr(admin, index)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -169,7 +169,7 @@ func testWithdrawPledge(t *testing.T, n *Node, admin utils.Address, index uint64
 	}
 
 	before := n.BalanceOf(ts[tIndex], uAddr, uAddr)
-	bkp, bpp, bres := n.GetPledge(uAddr)
+	bres := n.GetPledgeBalance(uAddr)
 
 	uid := uuid.New()
 	sig := sign(t, uAddr, uid)
@@ -186,15 +186,7 @@ func testWithdrawPledge(t *testing.T, n *Node, admin utils.Address, index uint64
 	after := n.BalanceOf(ts[tIndex], uAddr, uAddr)
 	getM := new(big.Int).Sub(after, before)
 
-	kp, pp, res := n.GetPledge(uAddr)
-
-	if kp.Cmp(bkp) != 0 {
-		t.Fatal("keeper posit change")
-	}
-
-	if pp.Cmp(bpp) != 0 {
-		t.Fatal("keeper posit change")
-	}
+	res := n.GetPledgeBalance(uAddr)
 
 	val := new(big.Int).Sub(bres[tIndex], res[tIndex])
 	// 合约中少的金额和user账户多的金额匹配
@@ -213,10 +205,15 @@ func testWithdrawPledge(t *testing.T, n *Node, admin utils.Address, index uint64
 }
 
 func testCreateKeeper(t *testing.T, n *Node, admin utils.Address) uint64 {
-	kPledge, _, _ := n.GetPledge(admin)
+	kPledge := n.GetKeeperPledge(admin)
 	index := testPledge(t, n, admin, new(big.Int).Mul(kPledge, big.NewInt(3)))
 
-	ui, uAddr, err := n.GetInfo(admin, index)
+	ui, err := n.GetInfo(admin, index)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	uAddr, err := n.GetAddr(admin, index)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -237,10 +234,15 @@ func testCreateKeeper(t *testing.T, n *Node, admin utils.Address) uint64 {
 }
 
 func testCreateProvider(t *testing.T, n *Node, admin utils.Address) uint64 {
-	_, pPledge, _ := n.GetPledge(admin)
+	pPledge := n.GetProviderPledge(admin)
 	index := testPledge(t, n, admin, new(big.Int).Mul(pPledge, big.NewInt(3)))
 
-	ui, uAddr, err := n.GetInfo(admin, index)
+	ui, err := n.GetInfo(admin, index)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	uAddr, err := n.GetAddr(admin, index)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -316,7 +318,7 @@ func testAddProvider(t *testing.T, n *Node, admin utils.Address, gIndex uint64) 
 
 	pindex := testCreateProvider(t, n, admin)
 
-	_, pAddr, err := n.GetInfo(admin, pindex)
+	pAddr, err := n.GetAddr(admin, pindex)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -344,7 +346,7 @@ func testAddProvider(t *testing.T, n *Node, admin utils.Address, gIndex uint64) 
 func testCreateUser(t *testing.T, n *Node, admin utils.Address, gIndex uint64) uint64 {
 	uindex := testPledge(t, n, admin, big.NewInt(4000))
 
-	_, uAddr, err := n.GetInfo(admin, uindex)
+	uAddr, err := n.GetAddr(admin, uindex)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -356,7 +358,7 @@ func testCreateUser(t *testing.T, n *Node, admin utils.Address, gIndex uint64) u
 		t.Fatal(err)
 	}
 
-	ui, _, err := n.GetInfo(admin, uindex)
+	ui, err := n.GetInfo(admin, uindex)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -392,12 +394,12 @@ func testCreateUser(t *testing.T, n *Node, admin utils.Address, gIndex uint64) u
 		t.Fatal(err)
 	}
 
-	avail, _, _, err := n.GetBalanceInFs(uAddr, uindex, 0)
+	avail, err := n.GetBalanceInFs(uAddr, uindex, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if avail.Cmp(amount) != 0 {
+	if avail[0].Cmp(amount) != 0 {
 		t.Fatal("recharge fail")
 	}
 
@@ -405,18 +407,18 @@ func testCreateUser(t *testing.T, n *Node, admin utils.Address, gIndex uint64) u
 }
 
 func testAddOrder(t *testing.T, n *Node, admin utils.Address, kIndex, userIndex, proIndex, start, end, size, nonce uint64) {
-	_, kAddr, err := n.GetInfo(admin, kIndex)
+	kAddr, err := n.GetAddr(admin, kIndex)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	bavil, block, bpaid, _ := n.GetBalanceInFs(kAddr, proIndex, 0)
-	buavil, bulock, bupaid, _ := n.GetBalanceInFs(kAddr, userIndex, 0)
-	bkavil, bklock, bkpaid, _ := n.GetBalanceInFs(kAddr, kIndex, 0)
+	bp, _ := n.GetBalanceInFs(kAddr, proIndex, 0)
+	bu, _ := n.GetBalanceInFs(kAddr, userIndex, 0)
+	bk, _ := n.GetBalanceInFs(kAddr, kIndex, 0)
 
-	t.Log(userIndex, "before:", buavil, bulock, bupaid)
-	t.Log(kIndex, "before:", bkavil, bklock, bkpaid)
-	t.Log(proIndex, "before:", bavil, block, bpaid)
+	t.Log(userIndex, "before:", bu[0], bu[1], bu[2])
+	t.Log(kIndex, "before:", bk[0], bk[1], bk[2])
+	t.Log(proIndex, "before:", bp[0], bp[1], bp[2])
 
 	uid := uuid.New()
 	sig := sign(t, kAddr, uid)
@@ -426,13 +428,13 @@ func testAddOrder(t *testing.T, n *Node, admin utils.Address, kIndex, userIndex,
 		t.Fatal(err)
 	}
 
-	avil, lock, paid, _ := n.GetBalanceInFs(kAddr, proIndex, 0)
-	kavil, klock, kpaid, _ := n.GetBalanceInFs(kAddr, kIndex, 0)
-	uavil, ulock, upaid, _ := n.GetBalanceInFs(kAddr, userIndex, 0)
+	p, _ := n.GetBalanceInFs(kAddr, proIndex, 0)
+	u, _ := n.GetBalanceInFs(kAddr, userIndex, 0)
+	k, _ := n.GetBalanceInFs(kAddr, kIndex, 0)
 
-	t.Log(userIndex, "after:", uavil, ulock, upaid)
-	t.Log(kIndex, "after:", kavil, klock, kpaid)
-	t.Log(proIndex, "after:", avil, lock, paid)
+	t.Log(userIndex, "after:", u[0], u[1], u[2])
+	t.Log(kIndex, "after:", k[0], k[1], k[2])
+	t.Log(proIndex, "after:", p[0], p[1], p[2])
 
 	pay := new(big.Int).Mul(big.NewInt(600000), new(big.Int).SetUint64(end-start))
 	per := new(big.Int).Div(pay, big.NewInt(100))
@@ -440,12 +442,12 @@ func testAddOrder(t *testing.T, n *Node, admin utils.Address, kIndex, userIndex,
 	tax := new(big.Int).Mul(per, big.NewInt(5))
 	payAndTax := new(big.Int).Add(pay, tax)
 
-	uCost := new(big.Int).Sub(buavil, uavil)
+	uCost := new(big.Int).Sub(bu[0], u[0])
 	if uCost.Cmp(payAndTax) != 0 {
 		t.Fatal("add order to pro fails, user cost not right")
 	}
 
-	pErn := new(big.Int).Sub(lock, block)
+	pErn := new(big.Int).Sub(p[1], bp[1])
 	if pErn.Cmp(pay) != 0 {
 		t.Fatal("add order to pro fails")
 	}
@@ -453,18 +455,18 @@ func testAddOrder(t *testing.T, n *Node, admin utils.Address, kIndex, userIndex,
 }
 
 func testSubOrder(t *testing.T, n *Node, admin utils.Address, kIndex, userIndex, proIndex, start, end, size, nonce uint64) {
-	_, kAddr, err := n.GetInfo(admin, kIndex)
+	kAddr, err := n.GetAddr(admin, kIndex)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	bavil, block, bpaid, _ := n.GetBalanceInFs(kAddr, proIndex, 0)
-	buavil, bulock, bupaid, _ := n.GetBalanceInFs(kAddr, userIndex, 0)
-	bkavil, bklock, bkpaid, _ := n.GetBalanceInFs(kAddr, kIndex, 0)
+	bp, _ := n.GetBalanceInFs(kAddr, proIndex, 0)
+	bu, _ := n.GetBalanceInFs(kAddr, userIndex, 0)
+	bk, _ := n.GetBalanceInFs(kAddr, kIndex, 0)
 
-	t.Log(userIndex, "before:", buavil, bulock, bupaid)
-	t.Log(kIndex, "before:", bkavil, bklock, bkpaid)
-	t.Log(proIndex, "before:", bavil, block, bpaid)
+	t.Log(userIndex, "before:", bu[0], bu[1], bu[2])
+	t.Log(kIndex, "before:", bk[0], bk[1], bk[2])
+	t.Log(proIndex, "before:", bp[0], bp[1], bp[2])
 
 	uid := uuid.New()
 	sig := sign(t, kAddr, uid)
@@ -474,18 +476,18 @@ func testSubOrder(t *testing.T, n *Node, admin utils.Address, kIndex, userIndex,
 		t.Fatal(err)
 	}
 
-	avil, lock, paid, _ := n.GetBalanceInFs(kAddr, proIndex, 0)
-	kavil, klock, kpaid, _ := n.GetBalanceInFs(kAddr, kIndex, 0)
-	uavil, ulock, upaid, _ := n.GetBalanceInFs(kAddr, userIndex, 0)
+	p, _ := n.GetBalanceInFs(kAddr, proIndex, 0)
+	u, _ := n.GetBalanceInFs(kAddr, userIndex, 0)
+	k, _ := n.GetBalanceInFs(kAddr, kIndex, 0)
 
-	t.Log(userIndex, "after:", uavil, ulock, upaid)
-	t.Log(kIndex, "after:", kavil, klock, kpaid)
-	t.Log(proIndex, "after:", avil, lock, paid)
+	t.Log(userIndex, "after:", u[0], u[1], u[2])
+	t.Log(kIndex, "after:", k[0], k[1], k[2])
+	t.Log(proIndex, "after:", p[0], p[1], p[2])
 }
 
 func testProWithdraw(t *testing.T, n *Node, admin utils.Address, proIndex uint64, amount, lost *big.Int) {
 
-	_, pAddr, err := n.GetInfo(admin, proIndex)
+	pAddr, err := n.GetAddr(admin, proIndex)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -494,8 +496,8 @@ func testProWithdraw(t *testing.T, n *Node, admin utils.Address, proIndex uint64
 
 	bbal := n.BalanceOf(ts[0], pAddr, pAddr)
 
-	bavil, block, bpaid, _ := n.GetBalanceInFs(pAddr, proIndex, 0)
-	t.Log(proIndex, "before:", bavil, block, bpaid)
+	bp, _ := n.GetBalanceInFs(pAddr, proIndex, 0)
+	t.Log(proIndex, "before:", bp[0], bp[1], bp[2])
 
 	uid := uuid.New()
 	sig := sign(t, pAddr, uid)
@@ -506,24 +508,23 @@ func testProWithdraw(t *testing.T, n *Node, admin utils.Address, proIndex uint64
 	}
 
 	bal := n.BalanceOf(ts[0], pAddr, pAddr)
-	avil, lock, paid, _ := n.GetBalanceInFs(pAddr, proIndex, 0)
+	p, _ := n.GetBalanceInFs(pAddr, proIndex, 0)
+	t.Log(proIndex, "after:", p[0], p[1], p[2])
 
-	t.Log(proIndex, "after:", avil, lock, paid)
-
-	if paid.Cmp(amount) != 0 {
+	if p[2].Cmp(amount) != 0 {
 		t.Fatal("pro withdraw fails")
 	}
 
 	bal.Sub(bal, bbal)
-	paid.Sub(paid, bpaid)
-	if paid.Cmp(bal) != 0 {
+	p[2].Sub(p[2], bp[2])
+	if p[2].Cmp(bal) != 0 {
 		t.Fatal("pro withdraw fails, pro money not right")
 	}
 	// verify lost
 }
 
 func testFsWithdraw(t *testing.T, n *Node, admin utils.Address, index uint64, amount *big.Int) {
-	_, pAddr, err := n.GetInfo(admin, index)
+	pAddr, err := n.GetAddr(admin, index)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -532,8 +533,8 @@ func testFsWithdraw(t *testing.T, n *Node, admin utils.Address, index uint64, am
 
 	bbal := n.BalanceOf(ts[0], pAddr, pAddr)
 
-	bavil, block, bpaid, _ := n.GetBalanceInFs(pAddr, index, 0)
-	t.Log(index, "before:", bavil, block, bpaid)
+	bp, _ := n.GetBalanceInFs(pAddr, index, 0)
+	t.Log(index, "before:", bp[0], bp[1], bp[2])
 
 	uid := uuid.New()
 	sig := sign(t, pAddr, uid)
@@ -544,17 +545,16 @@ func testFsWithdraw(t *testing.T, n *Node, admin utils.Address, index uint64, am
 	}
 
 	bal := n.BalanceOf(ts[0], pAddr, pAddr)
-	avil, lock, paid, _ := n.GetBalanceInFs(pAddr, index, 0)
-
-	t.Log(index, "after:", avil, lock, paid)
+	p, _ := n.GetBalanceInFs(pAddr, index, 0)
+	t.Log(index, "after:", p[0], p[1], p[2])
 
 	bal.Sub(bal, bbal)
-	paid.Sub(bavil, avil)
+	paid := new(big.Int).Sub(bp[0], p[0])
 	if paid.Cmp(bal) != 0 {
 		t.Fatal("withdraw fails, money not right")
 	}
 
-	if amount.Cmp(big.NewInt(0)) == 0 && avil.Cmp(big.NewInt(0)) != 0 {
+	if amount.Cmp(big.NewInt(0)) == 0 && p[0].Cmp(big.NewInt(0)) != 0 {
 		t.Fatal("withdraw fails, avail money not right")
 	}
 }
