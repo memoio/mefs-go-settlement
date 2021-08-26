@@ -2,6 +2,7 @@ package main
 
 import (
 	"crypto/rand"
+	"fmt"
 	"net/http"
 
 	"github.com/google/uuid"
@@ -62,7 +63,7 @@ var createCmd = &cli.Command{
 			return err
 		}
 
-		log.Info("create token addr: ", addr)
+		fmt.Println("create token addr: ", addr)
 
 		return nil
 	},
