@@ -57,12 +57,18 @@ func main() {
 		return
 	}
 
-	addr, err := api.CreateErcToken(uid, sig, utils.ToAddress(key.PubKey))
+	admin := utils.ToAddress(key.PubKey)
+
+	addr, err := api.CreateErcToken(uid, sig, admin)
 	if err != nil {
 		return
 	}
 
 	fmt.Println("create token addr: ", addr)
+
+	bal := api.BalanceOf(addr, admin, admin)
+
+	fmt.Println(admin, "has balance: ", bal)
 
 	return
 }
