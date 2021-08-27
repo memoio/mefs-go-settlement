@@ -232,6 +232,8 @@ type RoleMgr interface {
 
 	AddOrder(caller utils.Address, user, proIndex, start, end, size, nonce uint64, tokenIndex uint32, sprice *big.Int, usign, psign []byte, ksigns [][]byte) error
 	SubOrder(caller utils.Address, user, proIndex, start, end, size, nonce uint64, tokenIndex uint32, sprice *big.Int, usign, psign []byte, ksigns [][]byte) error
+	AddRepair(caller utils.Address, proIndex, newPro, start, end, size, nonce uint64, tokenIndex uint32, sprice *big.Int, psign []byte, ksigns [][]byte) error
+	SubRepair(caller utils.Address, proIndex, newPro, start, end, size, nonce uint64, tokenIndex uint32, sprice *big.Int, psign []byte, ksigns [][]byte) error
 
 	//  查询相关
 	// 获取addr地址的相关信息
@@ -265,6 +267,8 @@ type FsMgr interface {
 	CreateFs(caller utils.Address, user uint64, payToken uint32) error
 	AddOrder(caller utils.Address, kindex, user, proIndex, start, end, size, nonce uint64, tokenIndex uint32, sprice *big.Int, usign, psign []byte, ksigns [][]byte) error
 	SubOrder(caller utils.Address, kindex, user, proIndex, start, end, size, nonce uint64, tokenIndex uint32, sprice *big.Int, usign, psign []byte, ksigns [][]byte) error
+	AddRepair(caller utils.Address, kindex, proIndex, newPro, start, end, size, nonce uint64, tokenIndex uint32, sprice *big.Int, psign []byte, ksigns [][]byte) error
+	SubRepair(caller utils.Address, kindex, proIndex, newPro, start, end, size, nonce uint64, tokenIndex uint32, sprice *big.Int, psign []byte, ksigns [][]byte) error
 
 	// by user
 	Recharge(caller utils.Address, user uint64, tokenIndex uint32, money *big.Int, sign []byte) error

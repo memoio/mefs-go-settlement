@@ -44,10 +44,11 @@ type Settlement struct {
 	Size  uint64   // 在该存储节点上的存储总量
 	Price *big.Int // per byte*second
 
-	MaxPay  *big.Int // 对此provider所有user聚合总额度；expected 加和
-	HasPaid *big.Int // 已经支付
-	Lost    *big.Int // lost due to unable response to chal
-	CanPay  *big.Int // 最近一次store/pay时刻，可以支付的金额
+	MaxPay   *big.Int // 对此provider所有user聚合总额度；expected 加和
+	HasPaid  *big.Int // 已经支付
+	CanPay   *big.Int // 最近一次store/pay时刻，可以支付的金额
+	Lost     *big.Int // lost due to unable response to chal
+	LostPaid *big.Int // pay to repair
 
 	ManagePay  *big.Int // pay for group keepers >= endPaid+linearPaid
 	EndPaid    *big.Int // release when order expire
@@ -56,11 +57,12 @@ type Settlement struct {
 
 func newSettlement() *Settlement {
 	return &Settlement{
-		MaxPay:  big.NewInt(0),
-		HasPaid: big.NewInt(0),
-		Lost:    big.NewInt(0),
-		CanPay:  big.NewInt(0),
-		Price:   big.NewInt(1),
+		MaxPay:   big.NewInt(0),
+		HasPaid:  big.NewInt(0),
+		CanPay:   big.NewInt(0),
+		Price:    big.NewInt(0),
+		Lost:     big.NewInt(0),
+		LostPaid: big.NewInt(0),
 
 		ManagePay:  big.NewInt(0),
 		LinearPaid: big.NewInt(0),
@@ -162,9 +164,11 @@ type fsMgr struct {
 	foundation uint64
 
 	balance map[multiKey]*big.Int // available
+	penalty map[multiKey]*big.Int // penalty due to lost
 
-	users []uint64
-	fs    map[uint64]*fsInfo
+	users    []uint64
+	fs       map[uint64]*fsInfo
+	repairFs *fsInfo
 
 	keepers    []uint64
 	period     uint64
@@ -196,6 +200,13 @@ func NewFsMgr(caller utils.Address, founder, gIndex uint64) (FsMgr, error) {
 	h.Write([]byte(strconv.FormatUint(gIndex, 10)))
 
 	local := utils.GetContractAddress(caller, h.Sum(nil))
+
+	fi := &fsInfo{
+		isActive:  true,
+		providers: make([]uint64, 0, 1),
+		ao:        make(map[uint64]*aggOrder),
+	}
+
 	fm := &fsMgr{
 		local:      local,
 		owner:      caller,
@@ -204,9 +215,11 @@ func NewFsMgr(caller utils.Address, founder, gIndex uint64) (FsMgr, error) {
 		manageRate: 4,
 		taxRate:    1, // 5% for keeper
 		balance:    make(map[multiKey]*big.Int),
+		penalty:    make(map[multiKey]*big.Int),
 
-		users: make([]uint64, 0, 1),
-		fs:    make(map[uint64]*fsInfo),
+		users:    make([]uint64, 0, 1),
+		fs:       make(map[uint64]*fsInfo),
+		repairFs: fi,
 
 		keepers:    gi.Keepers,
 		period:     1,
@@ -783,6 +796,177 @@ func (f *fsMgr) ProWithdraw(caller utils.Address, proIndex uint64, tokenIndex ui
 	return nil
 }
 
-func (f *fsMgr) Repair(caller utils.Address) error {
+func (f *fsMgr) AddRepair(caller utils.Address, kindex, proIndex, newPro, start, end, size, nonce uint64, tokenIndex uint32, sprice *big.Int, npsign []byte, ksigns [][]byte) error {
+	if caller != f.owner {
+		return ErrPermission
+	}
+
+	// check params
+	if size <= 0 {
+		return ErrInput
+	}
+
+	_, ok := f.tAcc[tokenIndex]
+	if !ok {
+		return ErrEmpty
+	}
+
+	// verify money is enough
+	pKey := multiKey{
+		roleIndex:  proIndex,
+		tokenIndex: tokenIndex,
+	}
+
+	se, ok := f.proInfo[pKey]
+	if !ok {
+		return ErrEmpty
+	}
+
+	bal := new(big.Int).Sub(se.Lost, se.LostPaid)
+
+	pay := new(big.Int).Mul(sprice, new(big.Int).SetUint64(end-start))
+	per := new(big.Int).Div(pay, big.NewInt(100))
+	manage := new(big.Int).Mul(per, big.NewInt(int64(f.manageRate)))
+	if bal.Cmp(pay) < 0 {
+		return ErrBalanceNotEnough
+	}
+
+	fi := f.repairFs
+
+	// verify sign
+	pi, ok := fi.ao[newPro]
+	if !ok {
+		fi.providers = append(fi.providers, newPro)
+
+		pi = &aggOrder{
+			nonce:    0,
+			subNonce: 0,
+			sInfo:    make(map[uint32]*storeInfo),
+		}
+		fi.ao[newPro] = pi
+	}
+
+	if pi.nonce != nonce {
+		return ErrNonce
+	}
+
+	si, ok := pi.sInfo[tokenIndex]
+	if !ok {
+		si = &storeInfo{
+			time:  0,
+			size:  0,
+			price: big.NewInt(0),
+		}
+		pi.sInfo[tokenIndex] = si
+	}
+
+	// start > current - 2*epoch
+	si.price.Add(si.price, sprice)
+	si.size += size
+
+	npKey := multiKey{
+		roleIndex:  newPro,
+		tokenIndex: tokenIndex,
+	}
+
+	nse, ok := f.proInfo[npKey]
+	if !ok {
+		nse = newSettlement()
+		f.proInfo[pKey] = nse
+	}
+
+	nse.add(start, size, sprice, pay, manage)
+	pi.nonce++
+
+	se.LostPaid.Add(se.LostPaid, pay)
+
+	cnt, ok := f.count[kindex]
+	if ok {
+		cnt++
+		f.count[kindex] = cnt
+		f.totalCount++
+	}
+
+	return nil
+}
+
+func (f *fsMgr) SubRepair(caller utils.Address, kindex, proIndex, newPro, start, end, size, nonce uint64, tokenIndex uint32, sprice *big.Int, npsign []byte, ksigns [][]byte) error {
+	if caller != f.owner {
+		return ErrPermission
+	}
+
+	// verify ksigns
+	// verify usign
+	// verify psign
+
+	// check params
+	if size <= 0 {
+		return ErrInput
+	}
+
+	if end <= start {
+		return ErrInput
+	}
+
+	// time.N
+	if GetTime() < end {
+		return ErrRes
+	}
+
+	fi := f.repairFs
+
+	pi, ok := fi.ao[newPro]
+	if !ok {
+		return ErrEmpty
+	}
+
+	if pi.subNonce != nonce {
+		return ErrNonce
+	}
+
+	si, ok := pi.sInfo[tokenIndex]
+	if !ok {
+		return ErrEmpty
+	}
+
+	if si.size < size {
+		return ErrRes
+	}
+
+	// verify size and price
+	si.price.Sub(si.price, sprice)
+	si.size -= size
+
+	pKey := multiKey{
+		roleIndex:  newPro,
+		tokenIndex: tokenIndex,
+	}
+
+	se, ok := f.proInfo[pKey]
+	if !ok {
+		return ErrEmpty
+	}
+
+	se.sub(start, end, size, sprice)
+
+	// pay to keeper, 1% for endpay
+	endPaid := new(big.Int).Mul(sprice, new(big.Int).SetUint64(end-start))
+	endPaid.Div(endPaid, new(big.Int).SetUint64(100))
+	se.EndPaid.Add(se.EndPaid, endPaid)
+	ti := f.tAcc[tokenIndex]
+	ti.Add(ti, endPaid)
+
+	// pay to keeper, 4% for linear; due to pro no trigger pay
+	// todo
+
+	pi.subNonce++
+
+	cnt, ok := f.count[kindex]
+	if ok {
+		cnt++
+		f.count[kindex] = cnt
+		f.totalCount++
+	}
+
 	return nil
 }

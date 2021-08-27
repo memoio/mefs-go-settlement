@@ -711,6 +711,10 @@ func (r *roleMgr) AddOrder(caller utils.Address, user, proIndex, start, end, siz
 		return err
 	}
 
+	if pi.RoleType != RoleProvider {
+		return ErrRoleType
+	}
+
 	kindex := uint64(0)
 	ki, ok := r.info[caller]
 	if ok {
@@ -852,6 +856,106 @@ func (r *roleMgr) SubOrder(caller utils.Address, user, proIndex, start, end, siz
 		r.price.Sub(r.price, sprice)
 		r.size.Sub(r.size, new(big.Int).SetUint64(size))
 	}
+
+	return nil
+}
+
+// order ops
+func (r *roleMgr) AddRepair(caller utils.Address, proIndex, newPro, start, end, size, nonce uint64, tokenIndex uint32, sprice *big.Int, psign []byte, ksigns [][]byte) error {
+	log.Info("AddOrder")
+	// verify ksigns
+	// verify psign
+
+	pi, err := r.getInfo(proIndex)
+	if err != nil {
+		return err
+	}
+
+	if pi.RoleType != RoleProvider {
+		return ErrRoleType
+	}
+
+	npi, err := r.getInfo(newPro)
+	if err != nil {
+		return err
+	}
+
+	if npi.RoleType != RoleProvider {
+		return ErrRoleType
+	}
+
+	kindex := uint64(0)
+	ki, ok := r.info[caller]
+	if ok {
+		kindex = ki.Index
+	}
+
+	if pi.GIndex != npi.GIndex {
+		return ErrInput
+	}
+
+	gi, err := r.getGroupInfo(npi.GIndex)
+	if err != nil {
+		return err
+	}
+
+	fm, err := GetFsMgr(gi.FsAddr)
+	if err != nil {
+		return err
+	}
+
+	if tokenIndex >= uint32(len(r.tokens)) {
+		return ErrBalanceNotEnough
+	}
+
+	err = fm.AddRepair(r.local, kindex, proIndex, newPro, start, end, size, nonce, tokenIndex, sprice, psign, ksigns)
+	if err != nil {
+		return err
+	}
+
+	// modify size
+
+	// 增发
+	if tokenIndex == 0 {
+		pay := new(big.Int).Mul(sprice, new(big.Int).SetUint64(end-start))
+		r.totalPaid.Sub(r.totalPaid, pay) // sub due to lost
+	}
+
+	return nil
+}
+
+func (r *roleMgr) SubRepair(caller utils.Address, proIndex, newPro, start, end, size, nonce uint64, tokenIndex uint32, sprice *big.Int, psign []byte, ksigns [][]byte) error {
+	pi, err := r.getInfo(newPro)
+	if err != nil {
+		return err
+	}
+
+	if pi.RoleType != RoleProvider {
+		return ErrRoleType
+	}
+
+	gi, err := r.getGroupInfo(pi.GIndex)
+	if err != nil {
+		return err
+	}
+
+	kindex := uint64(0)
+	ki, ok := r.info[caller]
+	if ok {
+		kindex = ki.Index
+	}
+
+	fm, err := GetFsMgr(gi.FsAddr)
+	if err != nil {
+		return err
+	}
+
+	err = fm.SubRepair(r.local, kindex, proIndex, newPro, start, end, size, nonce, tokenIndex, sprice, psign, ksigns)
+	if err != nil {
+		return err
+	}
+
+	// modify size
 
 	return nil
 }
