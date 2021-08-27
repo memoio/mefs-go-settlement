@@ -2,11 +2,11 @@ package node
 
 import (
 	"crypto/rand"
+	"encoding/binary"
 	"math/big"
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/memoio/go-settlement/server/contract"
 	"github.com/memoio/go-settlement/utils"
 	"github.com/minio/blake2b-simd"
@@ -14,12 +14,15 @@ import (
 
 var addrMap = make(map[utils.Address]*utils.Key)
 
-func sign(t *testing.T, addr utils.Address, uid uuid.UUID) []byte {
+func sign(t *testing.T, addr utils.Address, uid uint64) []byte {
 	key, ok := addrMap[addr]
 	if !ok {
 		t.Fatal("no secretkey")
 	}
-	msg := blake2b.Sum256(uid[:])
+
+	buf := make([]byte, 8)
+	binary.LittleEndian.PutUint64(buf, uid)
+	msg := blake2b.Sum256(buf)
 	sig, err := utils.Sign(key.SecretKey, msg[:])
 	if err != nil {
 		t.Fatal(err)
@@ -56,7 +59,7 @@ func testNewNode(t *testing.T) *Node {
 }
 
 func testErc(t *testing.T, n *Node, admin utils.Address) utils.Address {
-	uid := uuid.New()
+	uid := n.GetNonce(admin, admin)
 	sig := sign(t, admin, uid)
 
 	taddr, err := n.CreateErcToken(uid, sig, admin)
@@ -68,7 +71,7 @@ func testErc(t *testing.T, n *Node, admin utils.Address) utils.Address {
 }
 
 func testCreateRoleMgr(t *testing.T, n *Node, admin, taddr, founder utils.Address) utils.Address {
-	uid := uuid.New()
+	uid := n.GetNonce(admin, admin)
 	sig := sign(t, admin, uid)
 
 	raddr, err := n.CreateRoleMgr(uid, sig, admin, founder, taddr)
@@ -76,7 +79,7 @@ func testCreateRoleMgr(t *testing.T, n *Node, admin, taddr, founder utils.Addres
 		t.Fatal(err)
 	}
 
-	uid = uuid.New()
+	uid = n.GetNonce(admin, admin)
 	sig = sign(t, admin, uid)
 
 	err = n.Transfer(uid, sig, taddr, admin, raddr, big.NewInt(1000000000000000))
@@ -94,7 +97,7 @@ func testPledge(t *testing.T, n *Node, admin utils.Address, amount *big.Int) uin
 		t.Fatal("no token")
 	}
 
-	uid := uuid.New()
+	uid := n.GetNonce(admin, admin)
 	sig := sign(t, admin, uid)
 
 	err := n.Transfer(uid, sig, ts[0], admin, uAddr, amount)
@@ -102,7 +105,7 @@ func testPledge(t *testing.T, n *Node, admin utils.Address, amount *big.Int) uin
 		t.Fatal(err)
 	}
 
-	uid = uuid.New()
+	uid = n.GetNonce(admin, uAddr)
 	sig = sign(t, uAddr, uid)
 
 	err = n.Register(uid, sig, uAddr, uAddr, nil)
@@ -111,7 +114,7 @@ func testPledge(t *testing.T, n *Node, admin utils.Address, amount *big.Int) uin
 	}
 
 	plAddr := n.GetPledgeAddress(uAddr)
-	uid = uuid.New()
+	uid = n.GetNonce(admin, uAddr)
 	sig = sign(t, uAddr, uid)
 	err = n.Approve(uid, sig, ts[0], uAddr, plAddr, amount)
 	if err != nil {
@@ -122,7 +125,7 @@ func testPledge(t *testing.T, n *Node, admin utils.Address, amount *big.Int) uin
 	if err != nil {
 		t.Fatal(err)
 	}
-	uid = uuid.New()
+	uid = n.GetNonce(admin, uAddr)
 	sig = sign(t, uAddr, uid)
 	err = n.Pledge(uid, sig, uAddr, uindex, amount, nil)
 	if err != nil {
@@ -154,7 +157,7 @@ func testWithdrawPledge(t *testing.T, n *Node, admin utils.Address, index uint64
 
 	if send {
 		plAddr := n.GetPledgeAddress(uAddr)
-		uid := uuid.New()
+		uid := n.GetNonce(admin, admin)
 		sig := sign(t, admin, uid)
 		val := new(big.Int).Mul(new(big.Int).SetUint64(1), new(big.Int).SetUint64(contract.Token))
 		err := n.Transfer(uid, sig, ts[tIndex], admin, plAddr, val)
@@ -171,7 +174,7 @@ func testWithdrawPledge(t *testing.T, n *Node, admin utils.Address, index uint64
 	before := n.BalanceOf(ts[tIndex], uAddr, uAddr)
 	bres := n.GetPledgeBalance(uAddr)
 
-	uid := uuid.New()
+	uid := n.GetNonce(admin, uAddr)
 	sig := sign(t, uAddr, uid)
 	err = n.Withdraw(uid, sig, uAddr, index, tIndex, amount, nil)
 	if err != nil {
@@ -218,7 +221,7 @@ func testCreateKeeper(t *testing.T, n *Node, admin utils.Address) uint64 {
 		t.Fatal(err)
 	}
 
-	uid := uuid.New()
+	uid := n.GetNonce(admin, uAddr)
 	sig := sign(t, uAddr, uid)
 
 	err = n.RegisterKeeper(uid, sig, uAddr, index, nil, nil)
@@ -247,7 +250,7 @@ func testCreateProvider(t *testing.T, n *Node, admin utils.Address) uint64 {
 		t.Fatal(err)
 	}
 
-	uid := uuid.New()
+	uid := n.GetNonce(admin, uAddr)
 	sig := sign(t, uAddr, uid)
 
 	err = n.RegisterProvider(uid, sig, uAddr, index, nil)
@@ -265,7 +268,7 @@ func testCreateProvider(t *testing.T, n *Node, admin utils.Address) uint64 {
 func testCreateGroup(t *testing.T, n *Node, admin utils.Address, inds []uint64) uint64 {
 	gs := n.GetAllGroups(admin)
 
-	uid := uuid.New()
+	uid := n.GetNonce(admin, admin)
 	sig := sign(t, admin, uid)
 	err := n.CreateGroup(uid, sig, admin, inds, 7, nil)
 	if err != nil {
@@ -289,7 +292,7 @@ func testAddKeeper(t *testing.T, n *Node, admin utils.Address, gIndex uint64) ui
 
 	kindex := testCreateKeeper(t, n, admin)
 
-	uid := uuid.New()
+	uid := n.GetNonce(admin, admin)
 	sig := sign(t, admin, uid)
 	err = n.AddKeeperToGroup(uid, sig, admin, kindex, gIndex, nil, nil)
 	if err != nil {
@@ -323,7 +326,7 @@ func testAddProvider(t *testing.T, n *Node, admin utils.Address, gIndex uint64) 
 		t.Fatal(err)
 	}
 
-	uid := uuid.New()
+	uid := n.GetNonce(admin, pAddr)
 	sig := sign(t, pAddr, uid)
 
 	err = n.AddProviderToGroup(uid, sig, pAddr, pindex, gIndex, nil)
@@ -351,7 +354,7 @@ func testCreateUser(t *testing.T, n *Node, admin utils.Address, gIndex uint64) u
 		t.Fatal(err)
 	}
 
-	uid := uuid.New()
+	uid := n.GetNonce(admin, uAddr)
 	sig := sign(t, uAddr, uid)
 	err = n.RegisterUser(uid, sig, uAddr, uindex, gIndex, 0, nil, nil)
 	if err != nil {
@@ -371,7 +374,7 @@ func testCreateUser(t *testing.T, n *Node, admin utils.Address, gIndex uint64) u
 	ts := n.GetAllTokens(uAddr)
 	amount := big.NewInt(4000000000000)
 
-	uid = uuid.New()
+	uid = n.GetNonce(admin, admin)
 	sig = sign(t, admin, uid)
 	err = n.Transfer(uid, sig, ts[0], admin, uAddr, amount)
 	if err != nil {
@@ -383,11 +386,11 @@ func testCreateUser(t *testing.T, n *Node, admin utils.Address, gIndex uint64) u
 		t.Fatal(err)
 	}
 
-	uid = uuid.New()
+	uid = n.GetNonce(admin, uAddr)
 	sig = sign(t, uAddr, uid)
 	n.Approve(uid, sig, ts[0], uAddr, gi.FsAddr, amount)
 
-	uid = uuid.New()
+	uid = n.GetNonce(admin, uAddr)
 	sig = sign(t, uAddr, uid)
 	err = n.Recharge(uid, sig, uAddr, uindex, 0, amount, nil)
 	if err != nil {
@@ -420,7 +423,7 @@ func testAddOrder(t *testing.T, n *Node, admin utils.Address, kIndex, userIndex,
 	t.Log(kIndex, "before:", bk[0], bk[1], bk[2])
 	t.Log(proIndex, "before:", bp[0], bp[1], bp[2])
 
-	uid := uuid.New()
+	uid := n.GetNonce(admin, kAddr)
 	sig := sign(t, kAddr, uid)
 
 	err = n.AddOrder(uid, sig, kAddr, userIndex, proIndex, start, end, size, nonce, 0, big.NewInt(600000), nil, nil, nil)
@@ -468,7 +471,7 @@ func testSubOrder(t *testing.T, n *Node, admin utils.Address, kIndex, userIndex,
 	t.Log(kIndex, "before:", bk[0], bk[1], bk[2])
 	t.Log(proIndex, "before:", bp[0], bp[1], bp[2])
 
-	uid := uuid.New()
+	uid := n.GetNonce(admin, kAddr)
 	sig := sign(t, kAddr, uid)
 
 	err = n.SubOrder(uid, sig, kAddr, userIndex, proIndex, start, end, size, nonce, 0, big.NewInt(600000), nil, nil, nil)
@@ -499,7 +502,7 @@ func testProWithdraw(t *testing.T, n *Node, admin utils.Address, proIndex uint64
 	bp, _ := n.GetBalanceInFs(pAddr, proIndex, 0)
 	t.Log(proIndex, "before:", bp[0], bp[1], bp[2])
 
-	uid := uuid.New()
+	uid := n.GetNonce(admin, pAddr)
 	sig := sign(t, pAddr, uid)
 
 	err = n.ProWithdraw(uid, sig, pAddr, proIndex, 0, amount, lost, nil)
@@ -536,7 +539,7 @@ func testFsWithdraw(t *testing.T, n *Node, admin utils.Address, index uint64, am
 	bp, _ := n.GetBalanceInFs(pAddr, index, 0)
 	t.Log(index, "before:", bp[0], bp[1], bp[2])
 
-	uid := uuid.New()
+	uid := n.GetNonce(admin, pAddr)
 	sig := sign(t, pAddr, uid)
 
 	err = n.WithdrawFromFs(uid, sig, pAddr, index, 0, amount, nil)

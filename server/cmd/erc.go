@@ -2,10 +2,10 @@ package main
 
 import (
 	"crypto/rand"
+	"encoding/binary"
 	"fmt"
 	"net/http"
 
-	"github.com/google/uuid"
 	"github.com/memoio/go-settlement/server/api/client"
 	"github.com/memoio/go-settlement/utils"
 	"github.com/minio/blake2b-simd"
@@ -45,20 +45,25 @@ var createCmd = &cli.Command{
 
 		defer closer()
 
-		uid := uuid.New()
 		key, err := utils.GenerateKey(rand.Reader)
 		if err != nil {
 			return err
 		}
 
-		msg := blake2b.Sum256(uid[:])
+		uAddr := utils.ToAddress(key.PubKey)
+
+		uid := api.GetNonce(uAddr, uAddr)
+
+		buf := make([]byte, 8)
+		binary.LittleEndian.PutUint64(buf, uid)
+		msg := blake2b.Sum256(buf)
 
 		sig, err := utils.Sign(key.SecretKey, msg[:])
 		if err != nil {
 			return err
 		}
 
-		addr, err := api.CreateErcToken(uid, sig, utils.ToAddress(key.PubKey))
+		addr, err := api.CreateErcToken(uid, sig, uAddr)
 		if err != nil {
 			return err
 		}

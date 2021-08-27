@@ -1,10 +1,10 @@
 package node
 
 import (
+	"encoding/binary"
 	"math/big"
 	"sync"
 
-	"github.com/google/uuid"
 	"github.com/memoio/go-settlement/server/contract"
 	"github.com/memoio/go-settlement/utils"
 	"github.com/minio/blake2b-simd"
@@ -30,13 +30,41 @@ func NewNode() *Node {
 	return n
 }
 
-func (n *Node) CreateRoleMgr(uid uuid.UUID, sig []byte, caller, founder, token utils.Address) (utils.Address, error) {
+func (n *Node) getAndIncNonce(addr utils.Address) uint64 {
+	non, ok := n.nonceMap[addr]
+	if ok {
+		n.nonceMap[addr] = non + 1
+		return non
+	}
+
+	n.nonceMap[addr] = 1
+	return 0
+}
+
+func (n *Node) GetNonce(caller, addr utils.Address) uint64 {
+	non, ok := n.nonceMap[addr]
+	if ok {
+		return non
+	} else {
+		return 0
+	}
+}
+
+func (n *Node) CreateRoleMgr(uid uint64, sig []byte, caller, founder, token utils.Address) (utils.Address, error) {
 	n.Lock()
 	defer n.Unlock()
 
 	n.count++
 
-	msg := blake2b.Sum256(uid[:])
+	cn := n.getAndIncNonce(caller)
+	if cn != uid {
+		return utils.NilAddress, ErrNonce
+	}
+
+	buf := make([]byte, 8)
+	binary.LittleEndian.PutUint64(buf, uid)
+	msg := blake2b.Sum256(buf)
+
 	ok := utils.Verify(caller, msg[:], sig)
 	if !ok {
 		return utils.NilAddress, ErrRes
@@ -55,13 +83,21 @@ func (n *Node) CreateRoleMgr(uid uuid.UUID, sig []byte, caller, founder, token u
 }
 
 // 注册地址，获取序号
-func (n *Node) Register(uid uuid.UUID, sig []byte, caller, addr utils.Address, sign []byte) error {
+func (n *Node) Register(uid uint64, sig []byte, caller, addr utils.Address, sign []byte) error {
 	n.Lock()
 	defer n.Unlock()
 
 	n.count++
 
-	msg := blake2b.Sum256(uid[:])
+	cn := n.getAndIncNonce(caller)
+	if cn != uid {
+		return ErrNonce
+	}
+
+	buf := make([]byte, 8)
+	binary.LittleEndian.PutUint64(buf, uid)
+	msg := blake2b.Sum256(buf)
+
 	ok := utils.Verify(caller, msg[:], sig)
 	if !ok {
 		return ErrRes
@@ -71,13 +107,21 @@ func (n *Node) Register(uid uuid.UUID, sig []byte, caller, addr utils.Address, s
 }
 
 // by admin, 注册erc20代币地址
-func (n *Node) RegisterToken(uid uuid.UUID, sig []byte, caller, taddr utils.Address, asign []byte) error {
+func (n *Node) RegisterToken(uid uint64, sig []byte, caller, taddr utils.Address, asign []byte) error {
 	n.Lock()
 	defer n.Unlock()
 
 	n.count++
 
-	msg := blake2b.Sum256(uid[:])
+	cn := n.getAndIncNonce(caller)
+	if cn != uid {
+		return ErrNonce
+	}
+
+	buf := make([]byte, 8)
+	binary.LittleEndian.PutUint64(buf, uid)
+	msg := blake2b.Sum256(buf)
+
 	ok := utils.Verify(caller, msg[:], sig)
 	if !ok {
 		return ErrRes
@@ -87,13 +131,20 @@ func (n *Node) RegisterToken(uid uuid.UUID, sig []byte, caller, taddr utils.Addr
 }
 
 // 注册成为keeper角色
-func (n *Node) RegisterKeeper(uid uuid.UUID, sig []byte, caller utils.Address, index uint64, blsKey, signature []byte) error {
+func (n *Node) RegisterKeeper(uid uint64, sig []byte, caller utils.Address, index uint64, blsKey, signature []byte) error {
 	n.Lock()
 	defer n.Unlock()
 
 	n.count++
 
-	msg := blake2b.Sum256(uid[:])
+	cn := n.getAndIncNonce(caller)
+	if cn != uid {
+		return ErrNonce
+	}
+
+	buf := make([]byte, 8)
+	binary.LittleEndian.PutUint64(buf, uid)
+	msg := blake2b.Sum256(buf)
 	ok := utils.Verify(caller, msg[:], sig)
 	if !ok {
 		return ErrRes
@@ -103,13 +154,20 @@ func (n *Node) RegisterKeeper(uid uuid.UUID, sig []byte, caller utils.Address, i
 }
 
 // 注册成为prvider角色
-func (n *Node) RegisterProvider(uid uuid.UUID, sig []byte, caller utils.Address, index uint64, signature []byte) error {
+func (n *Node) RegisterProvider(uid uint64, sig []byte, caller utils.Address, index uint64, signature []byte) error {
 	n.Lock()
 	defer n.Unlock()
 
 	n.count++
 
-	msg := blake2b.Sum256(uid[:])
+	cn := n.getAndIncNonce(caller)
+	if cn != uid {
+		return ErrNonce
+	}
+
+	buf := make([]byte, 8)
+	binary.LittleEndian.PutUint64(buf, uid)
+	msg := blake2b.Sum256(buf)
 	ok := utils.Verify(caller, msg[:], sig)
 	if !ok {
 		return ErrRes
@@ -119,13 +177,20 @@ func (n *Node) RegisterProvider(uid uuid.UUID, sig []byte, caller utils.Address,
 }
 
 // 注册成为user角色，从fs contract调用
-func (n *Node) RegisterUser(uid uuid.UUID, sig []byte, caller utils.Address, index, gIndex uint64, token uint32, blsKey, usign []byte) error {
+func (n *Node) RegisterUser(uid uint64, sig []byte, caller utils.Address, index, gIndex uint64, token uint32, blsKey, usign []byte) error {
 	n.Lock()
 	defer n.Unlock()
 
 	n.count++
 
-	msg := blake2b.Sum256(uid[:])
+	cn := n.getAndIncNonce(caller)
+	if cn != uid {
+		return ErrNonce
+	}
+
+	buf := make([]byte, 8)
+	binary.LittleEndian.PutUint64(buf, uid)
+	msg := blake2b.Sum256(buf)
 	ok := utils.Verify(caller, msg[:], sig)
 	if !ok {
 		return ErrRes
@@ -135,13 +200,20 @@ func (n *Node) RegisterUser(uid uuid.UUID, sig []byte, caller utils.Address, ind
 }
 
 // 质押,
-func (n *Node) Pledge(uid uuid.UUID, sig []byte, caller utils.Address, index uint64, money *big.Int, signature []byte) error {
+func (n *Node) Pledge(uid uint64, sig []byte, caller utils.Address, index uint64, money *big.Int, signature []byte) error {
 	n.Lock()
 	defer n.Unlock()
 
 	n.count++
 
-	msg := blake2b.Sum256(uid[:])
+	cn := n.getAndIncNonce(caller)
+	if cn != uid {
+		return ErrNonce
+	}
+
+	buf := make([]byte, 8)
+	binary.LittleEndian.PutUint64(buf, uid)
+	msg := blake2b.Sum256(buf)
 	ok := utils.Verify(caller, msg[:], sig)
 	if !ok {
 		return ErrRes
@@ -151,13 +223,20 @@ func (n *Node) Pledge(uid uuid.UUID, sig []byte, caller utils.Address, index uin
 }
 
 // 取回token对应的代币, money zero means all
-func (n *Node) Withdraw(uid uuid.UUID, sig []byte, caller utils.Address, index uint64, tokenIndex uint32, money *big.Int, signature []byte) error {
+func (n *Node) Withdraw(uid uint64, sig []byte, caller utils.Address, index uint64, tokenIndex uint32, money *big.Int, signature []byte) error {
 	n.Lock()
 	defer n.Unlock()
 
 	n.count++
 
-	msg := blake2b.Sum256(uid[:])
+	cn := n.getAndIncNonce(caller)
+	if cn != uid {
+		return ErrNonce
+	}
+
+	buf := make([]byte, 8)
+	binary.LittleEndian.PutUint64(buf, uid)
+	msg := blake2b.Sum256(buf)
 	ok := utils.Verify(caller, msg[:], sig)
 	if !ok {
 		return ErrRes
@@ -167,13 +246,20 @@ func (n *Node) Withdraw(uid uuid.UUID, sig []byte, caller utils.Address, index u
 }
 
 // 创建组，by admin
-func (n *Node) CreateGroup(uid uuid.UUID, sig []byte, caller utils.Address, inds []uint64, level uint16, asign []byte) error {
+func (n *Node) CreateGroup(uid uint64, sig []byte, caller utils.Address, inds []uint64, level uint16, asign []byte) error {
 	n.Lock()
 	defer n.Unlock()
 
 	n.count++
 
-	msg := blake2b.Sum256(uid[:])
+	cn := n.getAndIncNonce(caller)
+	if cn != uid {
+		return ErrNonce
+	}
+
+	buf := make([]byte, 8)
+	binary.LittleEndian.PutUint64(buf, uid)
+	msg := blake2b.Sum256(buf)
 	ok := utils.Verify(caller, msg[:], sig)
 	if !ok {
 		return ErrRes
@@ -183,13 +269,20 @@ func (n *Node) CreateGroup(uid uuid.UUID, sig []byte, caller utils.Address, inds
 }
 
 // 向组中添加keeper，by keeper and admin
-func (n *Node) AddKeeperToGroup(uid uuid.UUID, sig []byte, caller utils.Address, index, gIndex uint64, ksign, asign []byte) error {
+func (n *Node) AddKeeperToGroup(uid uint64, sig []byte, caller utils.Address, index, gIndex uint64, ksign, asign []byte) error {
 	n.Lock()
 	defer n.Unlock()
 
 	n.count++
 
-	msg := blake2b.Sum256(uid[:])
+	cn := n.getAndIncNonce(caller)
+	if cn != uid {
+		return ErrNonce
+	}
+
+	buf := make([]byte, 8)
+	binary.LittleEndian.PutUint64(buf, uid)
+	msg := blake2b.Sum256(buf)
 	ok := utils.Verify(caller, msg[:], sig)
 	if !ok {
 		return ErrRes
@@ -199,13 +292,20 @@ func (n *Node) AddKeeperToGroup(uid uuid.UUID, sig []byte, caller utils.Address,
 }
 
 // 向组中添加provider
-func (n *Node) AddProviderToGroup(uid uuid.UUID, sig []byte, caller utils.Address, index, gIndex uint64, psign []byte) error {
+func (n *Node) AddProviderToGroup(uid uint64, sig []byte, caller utils.Address, index, gIndex uint64, psign []byte) error {
 	n.Lock()
 	defer n.Unlock()
 
 	n.count++
 
-	msg := blake2b.Sum256(uid[:])
+	cn := n.getAndIncNonce(caller)
+	if cn != uid {
+		return ErrNonce
+	}
+
+	buf := make([]byte, 8)
+	binary.LittleEndian.PutUint64(buf, uid)
+	msg := blake2b.Sum256(buf)
 	ok := utils.Verify(caller, msg[:], sig)
 	if !ok {
 		return ErrRes
@@ -214,13 +314,20 @@ func (n *Node) AddProviderToGroup(uid uuid.UUID, sig []byte, caller utils.Addres
 	return n.rm.AddProviderToGroup(caller, index, gIndex, psign)
 }
 
-func (n *Node) Recharge(uid uuid.UUID, sig []byte, caller utils.Address, user uint64, tokenIndex uint32, money *big.Int, sign []byte) error {
+func (n *Node) Recharge(uid uint64, sig []byte, caller utils.Address, user uint64, tokenIndex uint32, money *big.Int, sign []byte) error {
 	n.Lock()
 	defer n.Unlock()
 
 	n.count++
 
-	msg := blake2b.Sum256(uid[:])
+	cn := n.getAndIncNonce(caller)
+	if cn != uid {
+		return ErrNonce
+	}
+
+	buf := make([]byte, 8)
+	binary.LittleEndian.PutUint64(buf, uid)
+	msg := blake2b.Sum256(buf)
 	ok := utils.Verify(caller, msg[:], sig)
 	if !ok {
 		return ErrRes
@@ -229,13 +336,20 @@ func (n *Node) Recharge(uid uuid.UUID, sig []byte, caller utils.Address, user ui
 	return n.rm.Recharge(caller, user, tokenIndex, money, sign)
 }
 
-func (n *Node) ProWithdraw(uid uuid.UUID, sig []byte, caller utils.Address, proIndex uint64, tokenIndex uint32, pay, lost *big.Int, ksigns [][]byte) error {
+func (n *Node) ProWithdraw(uid uint64, sig []byte, caller utils.Address, proIndex uint64, tokenIndex uint32, pay, lost *big.Int, ksigns [][]byte) error {
 	n.Lock()
 	defer n.Unlock()
 
 	n.count++
 
-	msg := blake2b.Sum256(uid[:])
+	cn := n.getAndIncNonce(caller)
+	if cn != uid {
+		return ErrNonce
+	}
+
+	buf := make([]byte, 8)
+	binary.LittleEndian.PutUint64(buf, uid)
+	msg := blake2b.Sum256(buf)
 	ok := utils.Verify(caller, msg[:], sig)
 	if !ok {
 		return ErrRes
@@ -244,13 +358,20 @@ func (n *Node) ProWithdraw(uid uuid.UUID, sig []byte, caller utils.Address, proI
 	return n.rm.ProWithdraw(caller, proIndex, tokenIndex, pay, lost, ksigns)
 }
 
-func (n *Node) WithdrawFromFs(uid uuid.UUID, sig []byte, caller utils.Address, index uint64, tokenIndex uint32, amount *big.Int, sign []byte) error {
+func (n *Node) WithdrawFromFs(uid uint64, sig []byte, caller utils.Address, index uint64, tokenIndex uint32, amount *big.Int, sign []byte) error {
 	n.Lock()
 	defer n.Unlock()
 
 	n.count++
 
-	msg := blake2b.Sum256(uid[:])
+	cn := n.getAndIncNonce(caller)
+	if cn != uid {
+		return ErrNonce
+	}
+
+	buf := make([]byte, 8)
+	binary.LittleEndian.PutUint64(buf, uid)
+	msg := blake2b.Sum256(buf)
 	ok := utils.Verify(caller, msg[:], sig)
 	if !ok {
 		return ErrRes
@@ -259,13 +380,20 @@ func (n *Node) WithdrawFromFs(uid uuid.UUID, sig []byte, caller utils.Address, i
 	return n.rm.WithdrawFromFs(caller, index, tokenIndex, amount, sign)
 }
 
-func (n *Node) AddOrder(uid uuid.UUID, sig []byte, caller utils.Address, user, proIndex, start, end, size, nonce uint64, tokenIndex uint32, sprice *big.Int, usign, psign []byte, ksigns [][]byte) error {
+func (n *Node) AddOrder(uid uint64, sig []byte, caller utils.Address, user, proIndex, start, end, size, nonce uint64, tokenIndex uint32, sprice *big.Int, usign, psign []byte, ksigns [][]byte) error {
 	n.Lock()
 	defer n.Unlock()
 
 	n.count++
 
-	msg := blake2b.Sum256(uid[:])
+	cn := n.getAndIncNonce(caller)
+	if cn != uid {
+		return ErrNonce
+	}
+
+	buf := make([]byte, 8)
+	binary.LittleEndian.PutUint64(buf, uid)
+	msg := blake2b.Sum256(buf)
 	ok := utils.Verify(caller, msg[:], sig)
 	if !ok {
 		return ErrRes
@@ -274,13 +402,20 @@ func (n *Node) AddOrder(uid uuid.UUID, sig []byte, caller utils.Address, user, p
 	return n.rm.AddOrder(caller, user, proIndex, start, end, size, nonce, tokenIndex, sprice, usign, psign, ksigns)
 }
 
-func (n *Node) SubOrder(uid uuid.UUID, sig []byte, caller utils.Address, user, proIndex, start, end, size, nonce uint64, tokenIndex uint32, sprice *big.Int, usign, psign []byte, ksigns [][]byte) error {
+func (n *Node) SubOrder(uid uint64, sig []byte, caller utils.Address, user, proIndex, start, end, size, nonce uint64, tokenIndex uint32, sprice *big.Int, usign, psign []byte, ksigns [][]byte) error {
 	n.Lock()
 	defer n.Unlock()
 
 	n.count++
 
-	msg := blake2b.Sum256(uid[:])
+	cn := n.getAndIncNonce(caller)
+	if cn != uid {
+		return ErrNonce
+	}
+
+	buf := make([]byte, 8)
+	binary.LittleEndian.PutUint64(buf, uid)
+	msg := blake2b.Sum256(buf)
 	ok := utils.Verify(caller, msg[:], sig)
 	if !ok {
 		return ErrRes

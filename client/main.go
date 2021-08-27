@@ -3,11 +3,11 @@ package main
 import (
 	"context"
 	"crypto/rand"
+	"encoding/binary"
 	"fmt"
 	"net/http"
 
 	"github.com/filecoin-project/go-jsonrpc"
-	"github.com/google/uuid"
 	"github.com/memoio/go-settlement/server/api"
 	"github.com/memoio/go-settlement/server/api/client"
 	"github.com/memoio/go-settlement/utils"
@@ -44,31 +44,34 @@ func main() {
 
 	defer closer()
 
-	uid := uuid.New()
 	key, err := utils.GenerateKey(rand.Reader)
 	if err != nil {
 		return
 	}
 
-	msg := blake2b.Sum256(uid[:])
+	uAddr := utils.ToAddress(key.PubKey)
+
+	uid := api.GetNonce(uAddr, uAddr)
+
+	buf := make([]byte, 8)
+	binary.LittleEndian.PutUint64(buf, uid)
+	msg := blake2b.Sum256(buf)
 
 	sig, err := utils.Sign(key.SecretKey, msg[:])
 	if err != nil {
 		return
 	}
 
-	admin := utils.ToAddress(key.PubKey)
-
-	addr, err := api.CreateErcToken(uid, sig, admin)
+	addr, err := api.CreateErcToken(uid, sig, uAddr)
 	if err != nil {
 		return
 	}
 
 	fmt.Println("create token addr: ", addr)
 
-	bal := api.BalanceOf(addr, admin, admin)
+	bal := api.BalanceOf(addr, uAddr, uAddr)
 
-	fmt.Println(admin, "has balance: ", bal)
+	fmt.Println(uAddr, "has balance: ", bal)
 
 	return
 }
