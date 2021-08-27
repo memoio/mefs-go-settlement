@@ -38,109 +38,109 @@ type fsInfo struct {
 	ao         map[uint64]*aggOrder // 该User对每个Provider的订单信息
 }
 
-// settlement is
-type settlement struct {
-	time  uint64   // store状态改变或pay时间, align to epoch
-	size  uint64   // 在该存储节点上的存储总量
-	price *big.Int // per byte*second
+// Settlement is
+type Settlement struct {
+	Time  uint64   // store状态改变或pay时间, align to epoch
+	Size  uint64   // 在该存储节点上的存储总量
+	Price *big.Int // per byte*second
 
-	maxPay  *big.Int // 对此provider所有user聚合总额度；expected 加和
-	hasPaid *big.Int // 已经支付
-	lost    *big.Int // lost due to unable response to chal
-	canPay  *big.Int // 最近一次store/pay时刻，可以支付的金额
+	MaxPay  *big.Int // 对此provider所有user聚合总额度；expected 加和
+	HasPaid *big.Int // 已经支付
+	Lost    *big.Int // lost due to unable response to chal
+	CanPay  *big.Int // 最近一次store/pay时刻，可以支付的金额
 
-	managePay  *big.Int // pay for group keepers >= endPaid+linearPaid
-	endPaid    *big.Int // release when order expire
-	linearPaid *big.Int // release when pay for provider
+	ManagePay  *big.Int // pay for group keepers >= endPaid+linearPaid
+	EndPaid    *big.Int // release when order expire
+	LinearPaid *big.Int // release when pay for provider
 }
 
-func newSettlement() *settlement {
-	return &settlement{
-		maxPay:  big.NewInt(0),
-		hasPaid: big.NewInt(0),
-		lost:    big.NewInt(0),
-		canPay:  big.NewInt(0),
-		price:   big.NewInt(1),
+func newSettlement() *Settlement {
+	return &Settlement{
+		MaxPay:  big.NewInt(0),
+		HasPaid: big.NewInt(0),
+		Lost:    big.NewInt(0),
+		CanPay:  big.NewInt(0),
+		Price:   big.NewInt(1),
 
-		managePay:  big.NewInt(0),
-		linearPaid: big.NewInt(0),
-		endPaid:    big.NewInt(0),
+		ManagePay:  big.NewInt(0),
+		LinearPaid: big.NewInt(0),
+		EndPaid:    big.NewInt(0),
 	}
 }
 
 // Add is
-func (s *settlement) add(start, size uint64, sprice, pay, manage *big.Int) {
+func (s *Settlement) add(start, size uint64, sprice, pay, manage *big.Int) {
 	// update canPay
 	hp := new(big.Int)
-	if s.time < start {
-		hp.SetUint64(start - s.time)
-		s.time = start
-	} else if s.time > start {
+	if s.Time < start {
+		hp.SetUint64(start - s.Time)
+		s.Time = start
+	} else if s.Time > start {
 		// add
-		hp.SetUint64(s.time - start)
+		hp.SetUint64(s.Time - start)
 	}
 
-	hp.Mul(hp, s.price)
-	s.canPay.Add(s.canPay, hp)
+	hp.Mul(hp, s.Price)
+	s.CanPay.Add(s.CanPay, hp)
 
 	// update price and size
-	s.price.Add(s.price, sprice)
-	s.size += s.size
+	s.Price.Add(s.Price, sprice)
+	s.Size += s.Size
 
-	s.maxPay.Add(s.maxPay, pay)
+	s.MaxPay.Add(s.MaxPay, pay)
 
-	// pay to keeper, 5% of pay
-	s.managePay.Add(s.managePay, manage)
+	// pay to keeper, 4% of pay
+	s.ManagePay.Add(s.ManagePay, manage)
 }
 
 // Sub ends
-func (s *settlement) sub(start, end, size uint64, sprice *big.Int) {
+func (s *Settlement) sub(start, end, size uint64, sprice *big.Int) {
 	// update canPay
-	hp := new(big.Int).SetUint64(end - s.time)
-	hp.Mul(hp, s.price)
-	s.canPay.Add(s.canPay, hp)
+	hp := new(big.Int).SetUint64(end - s.Time)
+	hp.Mul(hp, s.Price)
+	s.CanPay.Add(s.CanPay, hp)
 
-	if s.time < end {
-		s.time = end
+	if s.Time < end {
+		s.Time = end
 	}
 
 	// update size and price
-	s.price.Sub(s.price, sprice)
-	s.size -= size
+	s.Price.Sub(s.Price, sprice)
+	s.Size -= size
 }
 
 // Calc ends called by withdraw
-func (s *settlement) calc(pay, lost *big.Int) (*big.Int, error) {
+func (s *Settlement) calc(pay, lost *big.Int) (*big.Int, error) {
 	res := new(big.Int)
 	// has paid
-	if s.hasPaid.Cmp(pay) > 0 {
+	if s.HasPaid.Cmp(pay) > 0 {
 		return res, ErrRes
 	}
 	// lost is not rigth
-	if lost.Cmp(s.lost) < 0 {
+	if lost.Cmp(s.Lost) < 0 {
 		return res, ErrRes
 	}
-	s.lost.Set(lost)
+	s.Lost.Set(lost)
 
 	ntime := GetTime()
-	if s.time < ntime {
-		hp := new(big.Int).SetUint64(ntime - s.time)
-		hp.Mul(hp, s.price)
-		s.canPay.Add(s.canPay, hp)
-		s.time = ntime
+	if s.Time < ntime {
+		hp := new(big.Int).SetUint64(ntime - s.Time)
+		hp.Mul(hp, s.Price)
+		s.CanPay.Add(s.CanPay, hp)
+		s.Time = ntime
 	}
 
 	// can pay is right
-	if s.canPay.Cmp(pay) < 0 {
+	if s.CanPay.Cmp(pay) < 0 {
 		return res, ErrRes
 	}
 
-	if s.hasPaid.Cmp(pay) > 0 {
+	if s.HasPaid.Cmp(pay) > 0 {
 		return res, ErrRes
 	}
 
-	res.Sub(pay, s.hasPaid)
-	s.hasPaid.Set(pay)
+	res.Sub(pay, s.HasPaid)
+	s.HasPaid.Set(pay)
 
 	return res, nil
 }
@@ -174,7 +174,7 @@ type fsMgr struct {
 	count      map[uint64]uint64 //   记录keeper触发的次数，用于分润
 
 	providers []uint64
-	proInfo   map[multiKey]*settlement
+	proInfo   map[multiKey]*Settlement
 
 	tokens []uint32 // user使用某token时候加进来
 }
@@ -216,7 +216,7 @@ func NewFsMgr(caller utils.Address, founder, gIndex uint64) (FsMgr, error) {
 		count:      make(map[uint64]uint64),
 
 		providers: make([]uint64, 0, 1),
-		proInfo:   make(map[multiKey]*settlement),
+		proInfo:   make(map[multiKey]*Settlement),
 
 		tokens: make([]uint32, 0, 1),
 	}
@@ -504,7 +504,7 @@ func (f *fsMgr) SubOrder(caller utils.Address, kindex, user, proIndex, start, en
 	// pay to keeper, 1% for endpay
 	endPaid := new(big.Int).Mul(sprice, new(big.Int).SetUint64(end-start))
 	endPaid.Div(endPaid, new(big.Int).SetUint64(100))
-	se.endPaid.Add(se.endPaid, endPaid)
+	se.EndPaid.Add(se.EndPaid, endPaid)
 	ti := f.tAcc[tokenIndex]
 	ti.Add(ti, endPaid)
 
@@ -523,10 +523,23 @@ func (f *fsMgr) SubOrder(caller utils.Address, kindex, user, proIndex, start, en
 	return nil
 }
 
-func (f *fsMgr) GetBalance(caller utils.Address, index uint64, tIndex uint32) (*big.Int, *big.Int, *big.Int) {
+func (f *fsMgr) GetSettleInfo(caller utils.Address, index uint64, tIndex uint32) *Settlement {
+	mk := multiKey{
+		roleIndex:  index,
+		tokenIndex: tIndex,
+	}
+
+	se, ok := f.proInfo[mk]
+	if ok {
+		return se
+	}
+
+	return nil
+}
+
+func (f *fsMgr) GetBalance(caller utils.Address, index uint64, tIndex uint32) (*big.Int, *big.Int) {
 	avail := new(big.Int)
 	lock := new(big.Int)
-	paid := new(big.Int)
 	mk := multiKey{
 		roleIndex:  index,
 		tokenIndex: tIndex,
@@ -538,40 +551,40 @@ func (f *fsMgr) GetBalance(caller utils.Address, index uint64, tIndex uint32) (*
 
 	se, ok := f.proInfo[mk]
 	if ok {
-		canPay := new(big.Int).Set(se.canPay)
+		canPay := new(big.Int).Set(se.CanPay)
 		nt := GetTime()
-		tmp := new(big.Int).SetUint64(nt - se.time)
-		tmp.Mul(tmp, new(big.Int).SetUint64(se.size))
-		tmp.Mul(tmp, se.price)
+		tmp := new(big.Int).SetUint64(nt - se.Time)
+		tmp.Mul(tmp, new(big.Int).SetUint64(se.Size))
+		tmp.Mul(tmp, se.Price)
 
 		canPay.Add(canPay, tmp)
-		hardlimit := new(big.Int).Sub(se.maxPay, se.lost)
+		hardlimit := new(big.Int).Sub(se.MaxPay, se.Lost)
 
 		if canPay.Cmp(hardlimit) > 0 {
 			canPay.Set(hardlimit)
 		}
 
-		lock.Sub(canPay, se.hasPaid)
-		paid.Set(se.hasPaid)
+		lock.Sub(canPay, se.HasPaid)
+	}
+
+	if f.totalCount <= 0 {
+		return avail, lock
 	}
 
 	kc, ok := f.count[index]
 	if ok {
 		ntime := GetTime()
-		if ntime-f.lastTime > f.period {
-			if f.totalCount <= 0 {
-				return avail, lock, paid
-			}
-
-			ti := f.tAcc[tIndex]
-			per := new(big.Int).Div(ti, new(big.Int).SetUint64(f.totalCount))
-
-			pro := new(big.Int).Mul(per, new(big.Int).SetUint64(kc))
+		ti := f.tAcc[tIndex]
+		per := new(big.Int).Div(ti, new(big.Int).SetUint64(f.totalCount))
+		pro := new(big.Int).Mul(per, new(big.Int).SetUint64(kc))
+		if ntime-f.lastTime >= f.period {
 			avail.Add(avail, pro)
+		} else {
+			lock.Add(lock, pro)
 		}
 	}
 
-	return avail, lock, paid
+	return avail, lock
 }
 
 // 充值
@@ -726,11 +739,11 @@ func (f *fsMgr) ProWithdraw(caller utils.Address, proIndex uint64, tokenIndex ui
 	}
 
 	// linear pay to keepers
-	lpay := new(big.Int).Div(se.hasPaid, big.NewInt(100))
+	lpay := new(big.Int).Div(se.HasPaid, big.NewInt(100))
 	lpay.Mul(lpay, big.NewInt(4))
-	if lpay.Cmp(se.linearPaid) > 0 {
-		lpay.Sub(lpay, se.linearPaid)
-		se.linearPaid.Add(se.linearPaid, lpay)
+	if lpay.Cmp(se.LinearPaid) > 0 {
+		lpay.Sub(lpay, se.LinearPaid)
+		se.LinearPaid.Add(se.LinearPaid, lpay)
 		ti := f.tAcc[tokenIndex]
 		ti.Add(ti, lpay)
 	}
@@ -767,5 +780,9 @@ func (f *fsMgr) ProWithdraw(caller utils.Address, proIndex uint64, tokenIndex ui
 
 	pb.Sub(pb, thisPay)
 
+	return nil
+}
+
+func (f *fsMgr) Repair(caller utils.Address) error {
 	return nil
 }

@@ -419,9 +419,9 @@ func testAddOrder(t *testing.T, n *Node, admin utils.Address, kIndex, userIndex,
 	bu, _ := n.GetBalanceInFs(kAddr, userIndex, 0)
 	bk, _ := n.GetBalanceInFs(kAddr, kIndex, 0)
 
-	t.Log(userIndex, "before:", bu[0], bu[1], bu[2])
-	t.Log(kIndex, "before:", bk[0], bk[1], bk[2])
-	t.Log(proIndex, "before:", bp[0], bp[1], bp[2])
+	t.Log(userIndex, "before:", bu[0], bu[1])
+	t.Log(kIndex, "before:", bk[0], bk[1])
+	t.Log(proIndex, "before:", bp[0], bp[1])
 
 	uid := n.GetNonce(admin, kAddr)
 	sig := sign(t, kAddr, uid)
@@ -435,9 +435,9 @@ func testAddOrder(t *testing.T, n *Node, admin utils.Address, kIndex, userIndex,
 	u, _ := n.GetBalanceInFs(kAddr, userIndex, 0)
 	k, _ := n.GetBalanceInFs(kAddr, kIndex, 0)
 
-	t.Log(userIndex, "after:", u[0], u[1], u[2])
-	t.Log(kIndex, "after:", k[0], k[1], k[2])
-	t.Log(proIndex, "after:", p[0], p[1], p[2])
+	t.Log(userIndex, "after:", u[0], u[1])
+	t.Log(kIndex, "after:", k[0], k[1])
+	t.Log(proIndex, "after:", p[0], p[1])
 
 	pay := new(big.Int).Mul(big.NewInt(600000), new(big.Int).SetUint64(end-start))
 	per := new(big.Int).Div(pay, big.NewInt(100))
@@ -467,9 +467,9 @@ func testSubOrder(t *testing.T, n *Node, admin utils.Address, kIndex, userIndex,
 	bu, _ := n.GetBalanceInFs(kAddr, userIndex, 0)
 	bk, _ := n.GetBalanceInFs(kAddr, kIndex, 0)
 
-	t.Log(userIndex, "before:", bu[0], bu[1], bu[2])
-	t.Log(kIndex, "before:", bk[0], bk[1], bk[2])
-	t.Log(proIndex, "before:", bp[0], bp[1], bp[2])
+	t.Log(userIndex, "before:", bu[0], bu[1])
+	t.Log(kIndex, "before:", bk[0], bk[1])
+	t.Log(proIndex, "before:", bp[0], bp[1])
 
 	uid := n.GetNonce(admin, kAddr)
 	sig := sign(t, kAddr, uid)
@@ -483,9 +483,9 @@ func testSubOrder(t *testing.T, n *Node, admin utils.Address, kIndex, userIndex,
 	u, _ := n.GetBalanceInFs(kAddr, userIndex, 0)
 	k, _ := n.GetBalanceInFs(kAddr, kIndex, 0)
 
-	t.Log(userIndex, "after:", u[0], u[1], u[2])
-	t.Log(kIndex, "after:", k[0], k[1], k[2])
-	t.Log(proIndex, "after:", p[0], p[1], p[2])
+	t.Log(userIndex, "after:", u[0], u[1])
+	t.Log(kIndex, "after:", k[0], k[1])
+	t.Log(proIndex, "after:", p[0], p[1])
 }
 
 func testProWithdraw(t *testing.T, n *Node, admin utils.Address, proIndex uint64, amount, lost *big.Int) {
@@ -500,11 +500,13 @@ func testProWithdraw(t *testing.T, n *Node, admin utils.Address, proIndex uint64
 	bbal := n.BalanceOf(ts[0], pAddr, pAddr)
 
 	bp, _ := n.GetBalanceInFs(pAddr, proIndex, 0)
-	t.Log(proIndex, "before:", bp[0], bp[1], bp[2])
+	t.Log(proIndex, "before:", bp[0], bp[1])
+
+	se, _ := n.GetSettleInfo(pAddr, proIndex, 0)
+	paid := new(big.Int).Set(se.HasPaid)
 
 	uid := n.GetNonce(admin, pAddr)
 	sig := sign(t, pAddr, uid)
-
 	err = n.ProWithdraw(uid, sig, pAddr, proIndex, 0, amount, lost, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -512,15 +514,11 @@ func testProWithdraw(t *testing.T, n *Node, admin utils.Address, proIndex uint64
 
 	bal := n.BalanceOf(ts[0], pAddr, pAddr)
 	p, _ := n.GetBalanceInFs(pAddr, proIndex, 0)
-	t.Log(proIndex, "after:", p[0], p[1], p[2])
-
-	if p[2].Cmp(amount) != 0 {
-		t.Fatal("pro withdraw fails")
-	}
+	t.Log(proIndex, "after:", p[0], p[1])
 
 	bal.Sub(bal, bbal)
-	p[2].Sub(p[2], bp[2])
-	if p[2].Cmp(bal) != 0 {
+	amount.Sub(amount, paid)
+	if amount.Cmp(bal) != 0 {
 		t.Fatal("pro withdraw fails, pro money not right")
 	}
 	// verify lost
@@ -537,7 +535,7 @@ func testFsWithdraw(t *testing.T, n *Node, admin utils.Address, index uint64, am
 	bbal := n.BalanceOf(ts[0], pAddr, pAddr)
 
 	bp, _ := n.GetBalanceInFs(pAddr, index, 0)
-	t.Log(index, "before:", bp[0], bp[1], bp[2])
+	t.Log(index, "before:", bp[0], bp[1])
 
 	uid := n.GetNonce(admin, pAddr)
 	sig := sign(t, pAddr, uid)
@@ -549,7 +547,7 @@ func testFsWithdraw(t *testing.T, n *Node, admin utils.Address, index uint64, am
 
 	bal := n.BalanceOf(ts[0], pAddr, pAddr)
 	p, _ := n.GetBalanceInFs(pAddr, index, 0)
-	t.Log(index, "after:", p[0], p[1], p[2])
+	t.Log(index, "after:", p[0], p[1])
 
 	bal.Sub(bal, bbal)
 	paid := new(big.Int).Sub(bp[0], p[0])

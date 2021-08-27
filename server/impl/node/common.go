@@ -54,6 +54,7 @@ type ChainAPI interface {
 	GetGroupInfo(caller utils.Address, gindex uint64) (*contract.GroupInfo, error)
 	GetBalance(caller utils.Address, index uint64) ([]*big.Int, error)
 	GetBalanceInFs(caller utils.Address, index uint64, tIndex uint32) ([]*big.Int, error)
+	GetSettleInfo(caller utils.Address, index uint64, tIndex uint32) (*contract.Settlement, error)
 	GetPledgeAddress(caller utils.Address) utils.Address
 	GetKeeperPledge(caller utils.Address) *big.Int
 	GetProviderPledge(caller utils.Address) *big.Int

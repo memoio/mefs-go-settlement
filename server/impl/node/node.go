@@ -482,6 +482,33 @@ func (n *Node) GetBalance(caller utils.Address, index uint64) ([]*big.Int, error
 	return pp.GetBalance(caller, index), nil
 }
 
+func (n *Node) GetSettleInfo(caller utils.Address, index uint64, tIndex uint32) (*contract.Settlement, error) {
+	n.RLock()
+	defer n.RUnlock()
+
+	ui, _, err := n.rm.GetInfo(caller, index)
+	if err != nil {
+		return nil, err
+	}
+
+	gi, err := n.rm.GetGroupInfo(caller, ui.GIndex)
+	if err != nil {
+		return nil, err
+	}
+
+	fm, err := contract.GetFsMgr(gi.FsAddr)
+	if err != nil {
+		return nil, err
+	}
+
+	se := fm.GetSettleInfo(caller, index, tIndex)
+	if se == nil {
+		return nil, ErrRes
+	}
+
+	return se, nil
+}
+
 func (n *Node) GetBalanceInFs(caller utils.Address, index uint64, tIndex uint32) ([]*big.Int, error) {
 	n.RLock()
 	defer n.RUnlock()
@@ -501,11 +528,10 @@ func (n *Node) GetBalanceInFs(caller utils.Address, index uint64, tIndex uint32)
 		return nil, err
 	}
 
-	avail, lock, paid := fm.GetBalance(caller, index, tIndex)
-	res := make([]*big.Int, 3)
+	avail, lock := fm.GetBalance(caller, index, tIndex)
+	res := make([]*big.Int, 2)
 	res[0] = avail
 	res[1] = lock
-	res[2] = paid
 
 	return res, nil
 }

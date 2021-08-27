@@ -439,7 +439,7 @@ func testCreateUser(t *testing.T, rAddr utils.Address, gIndex uint64) uint64 {
 		t.Fatal(err)
 	}
 
-	avail, _, _ := fm.GetBalance(userAddr, ui.Index, 0)
+	avail, _ := fm.GetBalance(userAddr, ui.Index, 0)
 	if avail.Cmp(big.NewInt(1000000000000)) != 0 {
 		t.Fatal("recharge fails")
 	}
@@ -467,26 +467,26 @@ func testAddOrder(t *testing.T, rAddr utils.Address, kIndex, userIndex, proIndex
 		t.Fatal(err)
 	}
 
-	bavil, block, bpaid := fm.GetBalance(kAddr, proIndex, 0)
-	buavil, bulock, bupaid := fm.GetBalance(kAddr, userIndex, 0)
-	bkavil, bklock, bkpaid := fm.GetBalance(kAddr, kIndex, 0)
+	bavil, block := fm.GetBalance(kAddr, proIndex, 0)
+	buavil, bulock := fm.GetBalance(kAddr, userIndex, 0)
+	bkavil, bklock := fm.GetBalance(kAddr, kIndex, 0)
 
-	t.Log(userIndex, "before:", buavil, bulock, bupaid)
-	t.Log(kIndex, "before:", bkavil, bklock, bkpaid)
-	t.Log(proIndex, "before:", bavil, block, bpaid)
+	t.Log(userIndex, "before:", buavil, bulock)
+	t.Log(kIndex, "before:", bkavil, bklock)
+	t.Log(proIndex, "before:", bavil, block)
 
 	err = rm.AddOrder(kAddr, userIndex, proIndex, start, end, size, nonce, 0, big.NewInt(600000), nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	avil, lock, paid := fm.GetBalance(kAddr, proIndex, 0)
-	kavil, klock, kpaid := fm.GetBalance(kAddr, kIndex, 0)
-	uavil, ulock, upaid := fm.GetBalance(kAddr, userIndex, 0)
+	avil, lock := fm.GetBalance(kAddr, proIndex, 0)
+	kavil, klock := fm.GetBalance(kAddr, kIndex, 0)
+	uavil, ulock := fm.GetBalance(kAddr, userIndex, 0)
 
-	t.Log(userIndex, "after:", uavil, ulock, upaid)
-	t.Log(kIndex, "after:", kavil, klock, kpaid)
-	t.Log(proIndex, "after:", avil, lock, paid)
+	t.Log(userIndex, "after:", uavil, ulock)
+	t.Log(kIndex, "after:", kavil, klock)
+	t.Log(proIndex, "after:", avil, lock)
 
 	pay := new(big.Int).Mul(big.NewInt(600000), new(big.Int).SetUint64(end-start))
 	per := new(big.Int).Div(pay, big.NewInt(100))
@@ -556,30 +556,26 @@ func testProWithdraw(t *testing.T, rAddr utils.Address, proIndex uint64, amount,
 		t.Fatal(err)
 	}
 
-	bavil, block, bpaid := fm.GetBalance(pAddr, proIndex, 0)
-	t.Log(proIndex, "before:", bavil, block, bpaid)
+	bavil, block := fm.GetBalance(pAddr, proIndex, 0)
+	t.Log(proIndex, "before:", bavil, block)
+
+	se := fm.GetSettleInfo(pAddr, proIndex, 0)
+	paid := new(big.Int).Set(se.HasPaid)
+
 	err = fm.ProWithdraw(pAddr, proIndex, 0, amount, lost, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	bal := pt.BalanceOf(pAddr, pAddr)
-	avil, lock, paid := fm.GetBalance(pAddr, proIndex, 0)
+	avil, lock := fm.GetBalance(pAddr, proIndex, 0)
 
-	t.Log(proIndex, "after:", avil, lock, paid)
-
-	if paid.Cmp(amount) != 0 {
-		t.Fatal("pro withdraw fails")
-	}
+	t.Log(proIndex, "after:", avil, lock)
 
 	bal.Sub(bal, bbal)
-	paid.Sub(paid, bpaid)
-	if paid.Cmp(bal) != 0 {
-		t.Fatal("pro withdraw fails, pro money not right")
-	}
-
-	if avil.Cmp(zero) != 0 {
-		t.Fatal("pro withdraw fails, pro avail money not right")
+	amount.Sub(amount, paid)
+	if amount.Cmp(zero) != 0 && amount.Cmp(bal) != 0 {
+		t.Fatal("pro withdraw fails, pro money not right", amount, bal)
 	}
 
 	// verify lost
@@ -618,21 +614,25 @@ func testFsWithdraw(t *testing.T, rAddr utils.Address, kIndex uint64, amount *bi
 		t.Fatal(err)
 	}
 
-	bavil, block, bpaid := fm.GetBalance(kAddr, kIndex, 0)
-	t.Log(kIndex, "before:", bavil, block, bpaid)
+	bavil, block := fm.GetBalance(kAddr, kIndex, 0)
+	t.Log(kIndex, "before:", bavil, block)
+
 	err = fm.Withdraw(kAddr, kIndex, 0, amount, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	bal := pt.BalanceOf(kAddr, kAddr)
-	avil, lock, paid := fm.GetBalance(kAddr, kIndex, 0)
+	avil, lock := fm.GetBalance(kAddr, kIndex, 0)
 
-	t.Log(kIndex, "after:", avil, lock, paid)
+	t.Log(kIndex, "after:", avil, lock)
 
 	bal.Sub(bal, bbal)
-	paid.Sub(bavil, avil)
-	if paid.Cmp(bal) != 0 {
+	if amount.Cmp(zero) != 0 && amount.Cmp(bal) != 0 {
+		t.Fatal("withdraw fails, money not right")
+	}
+
+	if amount.Cmp(zero) == 0 && amount.Cmp(bavil) != 0 {
 		t.Fatal("withdraw fails, money not right")
 	}
 

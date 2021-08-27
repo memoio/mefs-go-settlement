@@ -272,8 +272,9 @@ type FsMgr interface {
 	ProWithdraw(caller utils.Address, proIndex uint64, tokenIndex uint32, pay, lost *big.Int, ksigns [][]byte) error
 
 	GetFsInfo(caller utils.Address, user uint64) (*fsInfo, error)
+	GetSettleInfo(caller utils.Address, index uint64, tIndex uint32) *Settlement
 	// return avalilable, locked, paid
-	GetBalance(caller utils.Address, index uint64, tIndex uint32) (*big.Int, *big.Int, *big.Int)
+	GetBalance(caller utils.Address, index uint64, tIndex uint32) (*big.Int, *big.Int)
 
 	info
 }

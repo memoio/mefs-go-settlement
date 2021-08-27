@@ -652,7 +652,24 @@ func (r *roleMgr) ProWithdraw(caller utils.Address, proIndex uint64, tokenIndex 
 		return err
 	}
 
-	return fm.ProWithdraw(r.local, proIndex, tokenIndex, pay, lost, nil)
+	blost := new(big.Int)
+	se := fm.GetSettleInfo(r.local, proIndex, tokenIndex)
+	if se != nil {
+		blost.Set(se.Lost)
+	}
+
+	err = fm.ProWithdraw(r.local, proIndex, tokenIndex, pay, lost, nil)
+	if err != nil {
+		return err
+	}
+
+	if tokenIndex == 0 {
+		// add lost to paid
+		r.totalPaid.Add(r.totalPaid, lost)
+		r.totalPaid.Sub(r.totalPaid, blost)
+	}
+
+	return nil
 }
 
 func (r *roleMgr) WithdrawFromFs(caller utils.Address, index uint64, tokenIndex uint32, amount *big.Int, sign []byte) error {

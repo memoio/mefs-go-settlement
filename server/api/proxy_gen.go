@@ -59,6 +59,7 @@ type FullNodeStruct struct {
 		GetGroupInfo      func(caller utils.Address, gindex uint64) (*contract.GroupInfo, error)
 		GetBalance        func(caller utils.Address, index uint64) ([]*big.Int, error)
 		GetBalanceInFs    func(caller utils.Address, index uint64, tIndex uint32) ([]*big.Int, error)
+		GetSettleInfo     func(caller utils.Address, index uint64, tIndex uint32) (*contract.Settlement, error)
 		GetPledgeAddress  func(caller utils.Address) utils.Address
 		GetKeeperPledge   func(caller utils.Address) *big.Int
 		GetProviderPledge func(caller utils.Address) *big.Int
@@ -216,6 +217,10 @@ func (s *FullNodeStruct) GetBalance(caller utils.Address, index uint64) ([]*big.
 
 func (s *FullNodeStruct) GetBalanceInFs(caller utils.Address, index uint64, tIndex uint32) ([]*big.Int, error) {
 	return s.Internal.GetBalanceInFs(caller, index, tIndex)
+}
+
+func (s *FullNodeStruct) GetSettleInfo(caller utils.Address, index uint64, tIndex uint32) (*contract.Settlement, error) {
+	return s.Internal.GetSettleInfo(caller, index, tIndex)
 }
 
 func (s *FullNodeStruct) GetPledgeAddress(caller utils.Address) utils.Address {
