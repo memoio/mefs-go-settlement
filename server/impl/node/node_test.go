@@ -127,7 +127,7 @@ func testPledge(t *testing.T, n *Node, admin utils.Address, amount *big.Int) uin
 	}
 	uid = n.GetNonce(admin, uAddr)
 	sig = sign(t, uAddr, uid)
-	err = n.Pledge(uid, sig, uAddr, uindex, amount, nil)
+	err = n.Pledge(uid, sig, uAddr, uindex, amount)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -176,7 +176,7 @@ func testWithdrawPledge(t *testing.T, n *Node, admin utils.Address, index uint64
 
 	uid := n.GetNonce(admin, uAddr)
 	sig := sign(t, uAddr, uid)
-	err = n.Withdraw(uid, sig, uAddr, index, tIndex, amount, nil)
+	err = n.Withdraw(uid, sig, uAddr, index, tIndex, amount)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -265,12 +265,12 @@ func testCreateProvider(t *testing.T, n *Node, admin utils.Address) uint64 {
 	return index
 }
 
-func testCreateGroup(t *testing.T, n *Node, admin utils.Address, inds []uint64) uint64 {
+func testCreateGroup(t *testing.T, n *Node, admin utils.Address) uint64 {
 	gs := n.GetAllGroups(admin)
 
 	uid := n.GetNonce(admin, admin)
 	sig := sign(t, admin, uid)
-	err := n.CreateGroup(uid, sig, admin, inds, 7, nil)
+	err := n.CreateGroup(uid, sig, admin, 7)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -294,7 +294,7 @@ func testAddKeeper(t *testing.T, n *Node, admin utils.Address, gIndex uint64) ui
 
 	uid := n.GetNonce(admin, admin)
 	sig := sign(t, admin, uid)
-	err = n.AddKeeperToGroup(uid, sig, admin, kindex, gIndex, nil, nil)
+	err = n.AddKeeperToGroup(uid, sig, admin, kindex, gIndex, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -329,7 +329,7 @@ func testAddProvider(t *testing.T, n *Node, admin utils.Address, gIndex uint64) 
 	uid := n.GetNonce(admin, pAddr)
 	sig := sign(t, pAddr, uid)
 
-	err = n.AddProviderToGroup(uid, sig, pAddr, pindex, gIndex, nil)
+	err = n.AddProviderToGroup(uid, sig, pAddr, pindex, gIndex)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -356,7 +356,7 @@ func testCreateUser(t *testing.T, n *Node, admin utils.Address, gIndex uint64) u
 
 	uid := n.GetNonce(admin, uAddr)
 	sig := sign(t, uAddr, uid)
-	err = n.RegisterUser(uid, sig, uAddr, uindex, gIndex, 0, nil, nil)
+	err = n.RegisterUser(uid, sig, uAddr, uindex, gIndex, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -392,7 +392,7 @@ func testCreateUser(t *testing.T, n *Node, admin utils.Address, gIndex uint64) u
 
 	uid = n.GetNonce(admin, uAddr)
 	sig = sign(t, uAddr, uid)
-	err = n.Recharge(uid, sig, uAddr, uindex, 0, amount, nil)
+	err = n.Recharge(uid, sig, uAddr, uindex, 0, amount)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -449,12 +449,6 @@ func testAddOrder(t *testing.T, n *Node, admin utils.Address, kIndex, userIndex,
 	if uCost.Cmp(payAndTax) != 0 {
 		t.Fatal("add order to pro fails, user cost not right")
 	}
-
-	pErn := new(big.Int).Sub(p[1], bp[1])
-	if pErn.Cmp(pay) != 0 {
-		t.Fatal("add order to pro fails")
-	}
-
 }
 
 func testSubOrder(t *testing.T, n *Node, admin utils.Address, kIndex, userIndex, proIndex, start, end, size, nonce uint64) {
@@ -540,7 +534,7 @@ func testFsWithdraw(t *testing.T, n *Node, admin utils.Address, index uint64, am
 	uid := n.GetNonce(admin, pAddr)
 	sig := sign(t, pAddr, uid)
 
-	err = n.WithdrawFromFs(uid, sig, pAddr, index, 0, amount, nil)
+	err = n.WithdrawFromFs(uid, sig, pAddr, index, 0, amount)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -574,13 +568,13 @@ func TestNode(t *testing.T) {
 	pindex := testCreateProvider(t, n, admin)
 	testWithdrawPledge(t, n, admin, pindex, 0, big.NewInt(20000), true)
 
+	gindex := testCreateGroup(t, n, admin)
 	var keepers []uint64
 	for i := 0; i < 7; i++ {
-		ind := testCreateKeeper(t, n, admin)
+		ind := testAddKeeper(t, n, admin, gindex)
 		keepers = append(keepers, ind)
 	}
 
-	gindex := testCreateGroup(t, n, admin, keepers)
 	kIndex := testAddKeeper(t, n, admin, gindex)
 	pIndex := testAddProvider(t, n, admin, gindex)
 

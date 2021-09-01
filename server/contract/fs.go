@@ -286,7 +286,7 @@ func (f *fsMgr) getFsInfo(user uint64) (*fsInfo, error) {
 	return fi, nil
 }
 
-func (f *fsMgr) CreateFs(caller utils.Address, user uint64, payToken uint32) error {
+func (f *fsMgr) CreateFs(caller utils.Address, user uint64) error {
 	// call by roleMgr
 	if caller != f.owner {
 		return ErrPermission
@@ -301,7 +301,7 @@ func (f *fsMgr) CreateFs(caller utils.Address, user uint64, payToken uint32) err
 	} else {
 		// add fs
 		fi = &fsInfo{
-			tokenIndex: payToken,
+			tokenIndex: 0,
 			providers:  make([]uint64, 0, 1),
 			ao:         make(map[uint64]*aggOrder),
 		}
@@ -312,16 +312,16 @@ func (f *fsMgr) CreateFs(caller utils.Address, user uint64, payToken uint32) err
 
 	fi.isActive = true
 
-	_, ok = f.tAcc[payToken]
+	_, ok = f.tAcc[0]
 	if !ok {
-		f.tAcc[payToken] = big.NewInt(0)
-		f.tokens = append(f.tokens, payToken)
+		f.tAcc[0] = big.NewInt(0)
+		f.tokens = append(f.tokens, 0)
 	}
 
 	return nil
 }
 
-func (f *fsMgr) AddOrder(caller utils.Address, kindex, user, proIndex, start, end, size, nonce uint64, tokenIndex uint32, sprice *big.Int, usign, psign []byte, ksigns [][]byte) error {
+func (f *fsMgr) AddOrder(caller utils.Address, kindex, user, proIndex, start, end, size, nonce uint64, tokenIndex uint32, sprice *big.Int) error {
 	if caller != f.owner {
 		return ErrPermission
 	}
@@ -452,7 +452,7 @@ func (f *fsMgr) AddOrder(caller utils.Address, kindex, user, proIndex, start, en
 	return nil
 }
 
-func (f *fsMgr) SubOrder(caller utils.Address, kindex, user, proIndex, start, end, size, nonce uint64, tokenIndex uint32, sprice *big.Int, usign, psign []byte, ksigns [][]byte) error {
+func (f *fsMgr) SubOrder(caller utils.Address, kindex, user, proIndex, start, end, size, nonce uint64, tokenIndex uint32, sprice *big.Int) error {
 	if caller != f.owner {
 		return ErrPermission
 	}
@@ -567,7 +567,6 @@ func (f *fsMgr) GetBalance(caller utils.Address, index uint64, tIndex uint32) (*
 		canPay := new(big.Int).Set(se.CanPay)
 		nt := GetTime()
 		tmp := new(big.Int).SetUint64(nt - se.Time)
-		tmp.Mul(tmp, new(big.Int).SetUint64(se.Size))
 		tmp.Mul(tmp, se.Price)
 
 		canPay.Add(canPay, tmp)
@@ -601,10 +600,9 @@ func (f *fsMgr) GetBalance(caller utils.Address, index uint64, tIndex uint32) (*
 }
 
 // 充值
-func (f *fsMgr) Recharge(caller utils.Address, user uint64, tokenIndex uint32, money *big.Int, sign []byte) error {
-	_, err := f.getFsInfo(user)
-	if err != nil {
-		return err
+func (f *fsMgr) Recharge(caller, addr utils.Address, index uint64, tokenIndex uint32, money *big.Int) error {
+	if caller != f.owner {
+		return ErrPermission
 	}
 
 	rm, err := getRoleMgr(f.owner)
@@ -624,18 +622,13 @@ func (f *fsMgr) Recharge(caller utils.Address, user uint64, tokenIndex uint32, m
 		f.tokens = append(f.tokens, tokenIndex)
 	}
 
-	_, uAddr, err := rm.GetInfo(f.local, user)
-	if err != nil {
-		return err
-	}
-
-	err = sendBalanceFrom(tAddr, f.local, uAddr, f.local, new(big.Int).Set(money))
+	err = sendBalanceFrom(tAddr, f.local, addr, f.local, new(big.Int).Set(money))
 	if err != nil {
 		return err
 	}
 
 	mk := multiKey{
-		roleIndex:  user,
+		roleIndex:  index,
 		tokenIndex: tokenIndex,
 	}
 
@@ -650,7 +643,7 @@ func (f *fsMgr) Recharge(caller utils.Address, user uint64, tokenIndex uint32, m
 	return nil
 }
 
-func (f *fsMgr) Withdraw(caller utils.Address, index uint64, tokenIndex uint32, amount *big.Int, sign []byte) error {
+func (f *fsMgr) Withdraw(caller utils.Address, index uint64, tokenIndex uint32, amount *big.Int) error {
 	if amount.Cmp(zero) < 0 {
 		return ErrInput
 	}
@@ -733,7 +726,7 @@ func (f *fsMgr) Withdraw(caller utils.Address, index uint64, tokenIndex uint32, 
 	return nil
 }
 
-func (f *fsMgr) ProWithdraw(caller utils.Address, proIndex uint64, tokenIndex uint32, pay, lost *big.Int, signs [][]byte) error {
+func (f *fsMgr) ProWithdraw(caller utils.Address, proIndex uint64, tokenIndex uint32, pay, lost *big.Int) error {
 	// verify ksign?
 	pKey := multiKey{
 		roleIndex:  proIndex,
@@ -796,7 +789,7 @@ func (f *fsMgr) ProWithdraw(caller utils.Address, proIndex uint64, tokenIndex ui
 	return nil
 }
 
-func (f *fsMgr) AddRepair(caller utils.Address, kindex, proIndex, newPro, start, end, size, nonce uint64, tokenIndex uint32, sprice *big.Int, npsign []byte, ksigns [][]byte) error {
+func (f *fsMgr) AddRepair(caller utils.Address, kindex, proIndex, newPro, start, end, size, nonce uint64, tokenIndex uint32, sprice *big.Int) error {
 	if caller != f.owner {
 		return ErrPermission
 	}
@@ -890,7 +883,7 @@ func (f *fsMgr) AddRepair(caller utils.Address, kindex, proIndex, newPro, start,
 	return nil
 }
 
-func (f *fsMgr) SubRepair(caller utils.Address, kindex, proIndex, newPro, start, end, size, nonce uint64, tokenIndex uint32, sprice *big.Int, npsign []byte, ksigns [][]byte) error {
+func (f *fsMgr) SubRepair(caller utils.Address, kindex, proIndex, newPro, start, end, size, nonce uint64, tokenIndex uint32, sprice *big.Int) error {
 	if caller != f.owner {
 		return ErrPermission
 	}

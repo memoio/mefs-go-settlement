@@ -29,18 +29,18 @@ type FullNode interface {
 
 	CreateRoleMgr(uid uint64, sig []byte, caller, founder, token utils.Address) (utils.Address, error)
 	Register(uid uint64, sig []byte, caller, addr utils.Address, sign []byte) error
-	RegisterToken(uid uint64, sig []byte, caller, taddr utils.Address, asign []byte) error
+	RegisterToken(uid uint64, sig []byte, caller, taddr utils.Address) error
 	RegisterKeeper(uid uint64, sig []byte, caller utils.Address, index uint64, blsKey, signature []byte) error
 	RegisterProvider(uid uint64, sig []byte, caller utils.Address, index uint64, signature []byte) error
-	RegisterUser(uid uint64, sig []byte, caller utils.Address, index, gIndex uint64, token uint32, blsKey, usign []byte) error
-	Pledge(uid uint64, sig []byte, caller utils.Address, index uint64, money *big.Int, signature []byte) error
-	Withdraw(uid uint64, sig []byte, caller utils.Address, index uint64, tokenIndex uint32, money *big.Int, signature []byte) error
-	CreateGroup(uid uint64, sig []byte, caller utils.Address, inds []uint64, level uint16, asign []byte) error
-	AddKeeperToGroup(uid uint64, sig []byte, caller utils.Address, index, gIndex uint64, ksign, asign []byte) error
-	AddProviderToGroup(uid uint64, sig []byte, caller utils.Address, index, gIndex uint64, psign []byte) error
-	Recharge(uid uint64, sig []byte, caller utils.Address, user uint64, tokenIndex uint32, money *big.Int, sign []byte) error
+	RegisterUser(uid uint64, sig []byte, caller utils.Address, index, gIndex uint64, blsKey []byte) error
+	Pledge(uid uint64, sig []byte, caller utils.Address, index uint64, money *big.Int) error
+	Withdraw(uid uint64, sig []byte, caller utils.Address, index uint64, tokenIndex uint32, money *big.Int) error
+	CreateGroup(uid uint64, sig []byte, caller utils.Address, level uint16) error
+	AddKeeperToGroup(uid uint64, sig []byte, caller utils.Address, index, gIndex uint64, asign []byte) error
+	AddProviderToGroup(uid uint64, sig []byte, caller utils.Address, index, gIndex uint64) error
+	Recharge(uid uint64, sig []byte, caller utils.Address, user uint64, tokenIndex uint32, money *big.Int) error
 	ProWithdraw(uid uint64, sig []byte, caller utils.Address, proIndex uint64, tokenIndex uint32, pay, lost *big.Int, ksigns [][]byte) error
-	WithdrawFromFs(uid uint64, sig []byte, caller utils.Address, index uint64, tokenIndex uint32, amount *big.Int, sign []byte) error
+	WithdrawFromFs(uid uint64, sig []byte, caller utils.Address, index uint64, tokenIndex uint32, amount *big.Int) error
 	AddOrder(uid uint64, sig []byte, caller utils.Address, user, proIndex, start, end, size, nonce uint64, tokenIndex uint32, sprice *big.Int, usign, psign []byte, ksigns [][]byte) error
 	SubOrder(uid uint64, sig []byte, caller utils.Address, user, proIndex, start, end, size, nonce uint64, tokenIndex uint32, sprice *big.Int, usign, psign []byte, ksigns [][]byte) error
 

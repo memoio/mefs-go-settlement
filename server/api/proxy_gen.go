@@ -36,18 +36,18 @@ type FullNodeStruct struct {
 
 		CreateRoleMgr      func(uid uint64, sig []byte, caller, founder, token utils.Address) (utils.Address, error)
 		Register           func(uid uint64, sig []byte, caller, addr utils.Address, sign []byte) error
-		RegisterToken      func(uid uint64, sig []byte, caller, taddr utils.Address, asign []byte) error
+		RegisterToken      func(uid uint64, sig []byte, caller, taddr utils.Address) error
 		RegisterKeeper     func(uid uint64, sig []byte, caller utils.Address, index uint64, blsKey, signature []byte) error
 		RegisterProvider   func(uid uint64, sig []byte, caller utils.Address, index uint64, signature []byte) error
-		RegisterUser       func(uid uint64, sig []byte, caller utils.Address, index, gIndex uint64, token uint32, blsKey, usign []byte) error
-		Pledge             func(uid uint64, sig []byte, caller utils.Address, index uint64, money *big.Int, signature []byte) error
-		Withdraw           func(uid uint64, sig []byte, caller utils.Address, index uint64, tokenIndex uint32, money *big.Int, signature []byte) error
-		CreateGroup        func(uid uint64, sig []byte, caller utils.Address, inds []uint64, level uint16, asign []byte) error
-		AddKeeperToGroup   func(uid uint64, sig []byte, caller utils.Address, index, gIndex uint64, ksign, asign []byte) error
-		AddProviderToGroup func(uid uint64, sig []byte, caller utils.Address, index, gIndex uint64, psign []byte) error
-		Recharge           func(uid uint64, sig []byte, caller utils.Address, user uint64, tokenIndex uint32, money *big.Int, sign []byte) error
+		RegisterUser       func(uid uint64, sig []byte, caller utils.Address, index, gIndex uint64, blsKey []byte) error
+		Pledge             func(uid uint64, sig []byte, caller utils.Address, index uint64, money *big.Int) error
+		Withdraw           func(uid uint64, sig []byte, caller utils.Address, index uint64, tokenIndex uint32, money *big.Int) error
+		CreateGroup        func(uid uint64, sig []byte, caller utils.Address, level uint16) error
+		AddKeeperToGroup   func(uid uint64, sig []byte, caller utils.Address, index, gIndex uint64, asign []byte) error
+		AddProviderToGroup func(uid uint64, sig []byte, caller utils.Address, index, gIndex uint64) error
+		Recharge           func(uid uint64, sig []byte, caller utils.Address, user uint64, tokenIndex uint32, money *big.Int) error
 		ProWithdraw        func(uid uint64, sig []byte, caller utils.Address, proIndex uint64, tokenIndex uint32, pay, lost *big.Int, ksigns [][]byte) error
-		WithdrawFromFs     func(uid uint64, sig []byte, caller utils.Address, index uint64, tokenIndex uint32, amount *big.Int, sign []byte) error
+		WithdrawFromFs     func(uid uint64, sig []byte, caller utils.Address, index uint64, tokenIndex uint32, amount *big.Int) error
 		AddOrder           func(uid uint64, sig []byte, caller utils.Address, user, proIndex, start, end, size, nonce uint64, tokenIndex uint32, sprice *big.Int, usign, psign []byte, ksigns [][]byte) error
 		SubOrder           func(uid uint64, sig []byte, caller utils.Address, user, proIndex, start, end, size, nonce uint64, tokenIndex uint32, sprice *big.Int, usign, psign []byte, ksigns [][]byte) error
 
@@ -131,8 +131,8 @@ func (s *FullNodeStruct) Register(uid uint64, sig []byte, caller, addr utils.Add
 	return s.Internal.Register(uid, sig, caller, addr, sign)
 }
 
-func (s *FullNodeStruct) RegisterToken(uid uint64, sig []byte, caller, taddr utils.Address, asign []byte) error {
-	return s.Internal.RegisterToken(uid, sig, caller, taddr, asign)
+func (s *FullNodeStruct) RegisterToken(uid uint64, sig []byte, caller, taddr utils.Address) error {
+	return s.Internal.RegisterToken(uid, sig, caller, taddr)
 }
 
 func (s *FullNodeStruct) RegisterKeeper(uid uint64, sig []byte, caller utils.Address, index uint64, blsKey, signature []byte) error {
@@ -143,40 +143,40 @@ func (s *FullNodeStruct) RegisterProvider(uid uint64, sig []byte, caller utils.A
 	return s.Internal.RegisterProvider(uid, sig, caller, index, signature)
 }
 
-func (s *FullNodeStruct) RegisterUser(uid uint64, sig []byte, caller utils.Address, index, gIndex uint64, token uint32, blsKey, usign []byte) error {
-	return s.Internal.RegisterUser(uid, sig, caller, index, gIndex, token, blsKey, usign)
+func (s *FullNodeStruct) RegisterUser(uid uint64, sig []byte, caller utils.Address, index, gIndex uint64, blsKey []byte) error {
+	return s.Internal.RegisterUser(uid, sig, caller, index, gIndex, blsKey)
 }
 
-func (s *FullNodeStruct) Pledge(uid uint64, sig []byte, caller utils.Address, index uint64, money *big.Int, signature []byte) error {
-	return s.Internal.Pledge(uid, sig, caller, index, money, signature)
+func (s *FullNodeStruct) Pledge(uid uint64, sig []byte, caller utils.Address, index uint64, money *big.Int) error {
+	return s.Internal.Pledge(uid, sig, caller, index, money)
 }
 
-func (s *FullNodeStruct) Withdraw(uid uint64, sig []byte, caller utils.Address, index uint64, tokenIndex uint32, money *big.Int, signature []byte) error {
-	return s.Internal.Withdraw(uid, sig, caller, index, tokenIndex, money, signature)
+func (s *FullNodeStruct) Withdraw(uid uint64, sig []byte, caller utils.Address, index uint64, tokenIndex uint32, money *big.Int) error {
+	return s.Internal.Withdraw(uid, sig, caller, index, tokenIndex, money)
 }
 
-func (s *FullNodeStruct) CreateGroup(uid uint64, sig []byte, caller utils.Address, inds []uint64, level uint16, asign []byte) error {
-	return s.Internal.CreateGroup(uid, sig, caller, inds, level, asign)
+func (s *FullNodeStruct) CreateGroup(uid uint64, sig []byte, caller utils.Address, level uint16) error {
+	return s.Internal.CreateGroup(uid, sig, caller, level)
 }
 
-func (s *FullNodeStruct) AddKeeperToGroup(uid uint64, sig []byte, caller utils.Address, index, gIndex uint64, ksign, asign []byte) error {
-	return s.Internal.AddKeeperToGroup(uid, sig, caller, index, gIndex, ksign, asign)
+func (s *FullNodeStruct) AddKeeperToGroup(uid uint64, sig []byte, caller utils.Address, index, gIndex uint64, asign []byte) error {
+	return s.Internal.AddKeeperToGroup(uid, sig, caller, index, gIndex, asign)
 }
 
-func (s *FullNodeStruct) AddProviderToGroup(uid uint64, sig []byte, caller utils.Address, index, gIndex uint64, psign []byte) error {
-	return s.Internal.AddProviderToGroup(uid, sig, caller, index, gIndex, psign)
+func (s *FullNodeStruct) AddProviderToGroup(uid uint64, sig []byte, caller utils.Address, index, gIndex uint64) error {
+	return s.Internal.AddProviderToGroup(uid, sig, caller, index, gIndex)
 }
 
-func (s *FullNodeStruct) Recharge(uid uint64, sig []byte, caller utils.Address, user uint64, tokenIndex uint32, money *big.Int, sign []byte) error {
-	return s.Internal.Recharge(uid, sig, caller, user, tokenIndex, money, sign)
+func (s *FullNodeStruct) Recharge(uid uint64, sig []byte, caller utils.Address, user uint64, tokenIndex uint32, money *big.Int) error {
+	return s.Internal.Recharge(uid, sig, caller, user, tokenIndex, money)
 }
 
 func (s *FullNodeStruct) ProWithdraw(uid uint64, sig []byte, caller utils.Address, proIndex uint64, tokenIndex uint32, pay, lost *big.Int, ksigns [][]byte) error {
 	return s.Internal.ProWithdraw(uid, sig, caller, proIndex, tokenIndex, pay, lost, ksigns)
 }
 
-func (s *FullNodeStruct) WithdrawFromFs(uid uint64, sig []byte, caller utils.Address, index uint64, tokenIndex uint32, amount *big.Int, sign []byte) error {
-	return s.Internal.WithdrawFromFs(uid, sig, caller, index, tokenIndex, amount, sign)
+func (s *FullNodeStruct) WithdrawFromFs(uid uint64, sig []byte, caller utils.Address, index uint64, tokenIndex uint32, amount *big.Int) error {
+	return s.Internal.WithdrawFromFs(uid, sig, caller, index, tokenIndex, amount)
 }
 
 func (s *FullNodeStruct) AddOrder(uid uint64, sig []byte, caller utils.Address, user, proIndex, start, end, size, nonce uint64, tokenIndex uint32, sprice *big.Int, usign, psign []byte, ksigns [][]byte) error {

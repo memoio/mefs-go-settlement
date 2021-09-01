@@ -135,7 +135,7 @@ func (p *pledgeMgr) AddToken(caller, tAddr utils.Address, tokenIndex uint32) err
 	return nil
 }
 
-func (p *pledgeMgr) Pledge(caller utils.Address, index uint64, money *big.Int) error {
+func (p *pledgeMgr) Pledge(caller, addr utils.Address, index uint64, money *big.Int) error {
 	if caller != p.owner {
 		return ErrPermission
 	}
@@ -145,17 +145,7 @@ func (p *pledgeMgr) Pledge(caller utils.Address, index uint64, money *big.Int) e
 		return ErrRes
 	}
 
-	rm, err := getRoleMgr(p.owner)
-	if err != nil {
-		return err
-	}
-
 	// update value
-	_, addr, err := rm.GetInfo(p.local, index)
-	if err != nil {
-		return err
-	}
-
 	mk := multiKey{
 		roleIndex:  index,
 		tokenIndex: 0,
@@ -206,7 +196,7 @@ func (p *pledgeMgr) Pledge(caller utils.Address, index uint64, money *big.Int) e
 		rew.rewardAccum = new(big.Int).Set(ti.rewardAccum) // 更新acc
 	}
 
-	err = sendBalanceFrom(p.tokens[0], p.local, addr, p.local, money)
+	err := sendBalanceFrom(p.tokens[0], p.local, addr, p.local, money)
 	if err != nil {
 		return err
 	}

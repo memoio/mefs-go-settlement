@@ -190,7 +190,7 @@ type ErcToken interface {
 // PledgePool is for stake and withdraw
 type PledgePool interface {
 	AddToken(caller, tAddr utils.Address, tIndex uint32) error
-	Pledge(caller utils.Address, index uint64, money *big.Int) error
+	Pledge(caller, addr utils.Address, index uint64, money *big.Int) error
 	Withdraw(caller utils.Address, index uint64, tokenIndex uint32, money, lock *big.Int) error
 
 	GetBalance(caller utils.Address, index uint64) []*big.Int
@@ -202,34 +202,41 @@ type PledgePool interface {
 // RoleMgr can be admin by multiple signatures, non-destroy
 // now, single sign
 type RoleMgr interface {
-	// 注册地址，获取序号
+	// called by admin, 注册erc20代币地址
+	RegisterToken(caller, taddr utils.Address) error
+
+	// 注册地址，获取序号; meta
 	Register(caller, addr utils.Address, sign []byte) error
-	// by admin, 注册erc20代币地址
-	RegisterToken(caller, taddr utils.Address, asign []byte) error
 
-	// 注册成为keeper角色
-	RegisterKeeper(caller utils.Address, index uint64, blsKey, signature []byte) error
-	// 注册成为prvider角色
-	RegisterProvider(caller utils.Address, index uint64, signature []byte) error
-	// 注册成为user角色，从fs contract调用
-	RegisterUser(caller utils.Address, index, gIndex uint64, token uint32, blsKey, usign []byte) error
+	// 注册成为keeper角色; meta
+	RegisterKeeper(caller utils.Address, index uint64, blsKey, ksign []byte) error
+	// 注册成为prvider角色; meta
+	RegisterProvider(caller utils.Address, index uint64, psign []byte) error
+	// 注册成为user角色; meta
+	RegisterUser(caller utils.Address, index, gIndex uint64, blsKey []byte) error
 
-	// 质押,
-	Pledge(caller utils.Address, index uint64, money *big.Int, signature []byte) error
+	// 创建组，called by admin
+	CreateGroup(caller utils.Address, level uint16) error
+	// auth by keepers
+	SetReady(caller utils.Address, gIndex uint64, ksigns [][]byte) error
+	// 向组中添加keeper, called by keeper and auth by admin
+	AddKeeperToGroup(caller utils.Address, index, gIndex uint64, asign []byte) error
+	// 向组中添加provider, called by provider
+	AddProviderToGroup(caller utils.Address, index, gIndex uint64) error
+
+	// 质押; caller is admin(airdop) or caller is index
+	Pledge(caller utils.Address, index uint64, money *big.Int) error
 	// 取回token对应的代币, money zero means all
-	Withdraw(caller utils.Address, index uint64, tokenIndex uint32, money *big.Int, signature []byte) error
+	Withdraw(caller utils.Address, index uint64, tokenIndex uint32, money *big.Int) error
 
-	// 创建组，by admin
-	CreateGroup(caller utils.Address, inds []uint64, level uint16, asign []byte) error
-	// 向组中添加keeper，by keeper and admin
-	AddKeeperToGroup(caller utils.Address, index, gIndex uint64, ksign, asign []byte) error
-	// 向组中添加provider
-	AddProviderToGroup(caller utils.Address, index, gIndex uint64, psign []byte) error
-
-	Recharge(caller utils.Address, user uint64, tokenIndex uint32, money *big.Int, sign []byte) error
-	WithdrawFromFs(caller utils.Address, keeperIndex uint64, tokenIndex uint32, amount *big.Int, sign []byte) error
+	// caller is admin(airdop) or caller is index
+	Recharge(caller utils.Address, index uint64, tokenIndex uint32, money *big.Int) error
+	// called by user or keeper
+	WithdrawFromFs(caller utils.Address, index uint64, tokenIndex uint32, amount *big.Int) error
+	// called by pro; auth by keepers
 	ProWithdraw(caller utils.Address, proIndex uint64, tokenIndex uint32, pay, lost *big.Int, ksigns [][]byte) error
 
+	// meta op
 	AddOrder(caller utils.Address, user, proIndex, start, end, size, nonce uint64, tokenIndex uint32, sprice *big.Int, usign, psign []byte, ksigns [][]byte) error
 	SubOrder(caller utils.Address, user, proIndex, start, end, size, nonce uint64, tokenIndex uint32, sprice *big.Int, usign, psign []byte, ksigns [][]byte) error
 	AddRepair(caller utils.Address, proIndex, newPro, start, end, size, nonce uint64, tokenIndex uint32, sprice *big.Int, psign []byte, ksigns [][]byte) error
@@ -264,16 +271,16 @@ type RoleMgr interface {
 type FsMgr interface {
 	// by roleMgr contract
 	AddKeeper(caller utils.Address, kindex uint64) error
-	CreateFs(caller utils.Address, user uint64, payToken uint32) error
-	AddOrder(caller utils.Address, kindex, user, proIndex, start, end, size, nonce uint64, tokenIndex uint32, sprice *big.Int, usign, psign []byte, ksigns [][]byte) error
-	SubOrder(caller utils.Address, kindex, user, proIndex, start, end, size, nonce uint64, tokenIndex uint32, sprice *big.Int, usign, psign []byte, ksigns [][]byte) error
-	AddRepair(caller utils.Address, kindex, proIndex, newPro, start, end, size, nonce uint64, tokenIndex uint32, sprice *big.Int, psign []byte, ksigns [][]byte) error
-	SubRepair(caller utils.Address, kindex, proIndex, newPro, start, end, size, nonce uint64, tokenIndex uint32, sprice *big.Int, psign []byte, ksigns [][]byte) error
+	CreateFs(caller utils.Address, user uint64) error
+	AddOrder(caller utils.Address, kindex, user, proIndex, start, end, size, nonce uint64, tokenIndex uint32, sprice *big.Int) error
+	SubOrder(caller utils.Address, kindex, user, proIndex, start, end, size, nonce uint64, tokenIndex uint32, sprice *big.Int) error
+	AddRepair(caller utils.Address, kindex, proIndex, newPro, start, end, size, nonce uint64, tokenIndex uint32, sprice *big.Int) error
+	SubRepair(caller utils.Address, kindex, proIndex, newPro, start, end, size, nonce uint64, tokenIndex uint32, sprice *big.Int) error
 
 	// by user
-	Recharge(caller utils.Address, user uint64, tokenIndex uint32, money *big.Int, sign []byte) error
-	Withdraw(caller utils.Address, keeperIndex uint64, tokenIndex uint32, amount *big.Int, sign []byte) error
-	ProWithdraw(caller utils.Address, proIndex uint64, tokenIndex uint32, pay, lost *big.Int, ksigns [][]byte) error
+	Recharge(caller, addr utils.Address, user uint64, tokenIndex uint32, money *big.Int) error
+	Withdraw(caller utils.Address, keeperIndex uint64, tokenIndex uint32, amount *big.Int) error
+	ProWithdraw(caller utils.Address, proIndex uint64, tokenIndex uint32, pay, lost *big.Int) error
 
 	GetFsInfo(caller utils.Address, user uint64) (*fsInfo, error)
 	GetSettleInfo(caller utils.Address, index uint64, tIndex uint32) *Settlement

@@ -107,7 +107,7 @@ func (n *Node) Register(uid uint64, sig []byte, caller, addr utils.Address, sign
 }
 
 // by admin, 注册erc20代币地址
-func (n *Node) RegisterToken(uid uint64, sig []byte, caller, taddr utils.Address, asign []byte) error {
+func (n *Node) RegisterToken(uid uint64, sig []byte, caller, taddr utils.Address) error {
 	n.Lock()
 	defer n.Unlock()
 
@@ -127,7 +127,7 @@ func (n *Node) RegisterToken(uid uint64, sig []byte, caller, taddr utils.Address
 		return ErrRes
 	}
 
-	return n.rm.RegisterToken(caller, taddr, asign)
+	return n.rm.RegisterToken(caller, taddr)
 }
 
 // 注册成为keeper角色
@@ -177,7 +177,7 @@ func (n *Node) RegisterProvider(uid uint64, sig []byte, caller utils.Address, in
 }
 
 // 注册成为user角色，从fs contract调用
-func (n *Node) RegisterUser(uid uint64, sig []byte, caller utils.Address, index, gIndex uint64, token uint32, blsKey, usign []byte) error {
+func (n *Node) RegisterUser(uid uint64, sig []byte, caller utils.Address, index, gIndex uint64, blsKey []byte) error {
 	n.Lock()
 	defer n.Unlock()
 
@@ -196,11 +196,11 @@ func (n *Node) RegisterUser(uid uint64, sig []byte, caller utils.Address, index,
 		return ErrRes
 	}
 
-	return n.rm.RegisterUser(caller, index, gIndex, token, blsKey, usign)
+	return n.rm.RegisterUser(caller, index, gIndex, blsKey)
 }
 
 // 质押,
-func (n *Node) Pledge(uid uint64, sig []byte, caller utils.Address, index uint64, money *big.Int, signature []byte) error {
+func (n *Node) Pledge(uid uint64, sig []byte, caller utils.Address, index uint64, money *big.Int) error {
 	n.Lock()
 	defer n.Unlock()
 
@@ -219,11 +219,11 @@ func (n *Node) Pledge(uid uint64, sig []byte, caller utils.Address, index uint64
 		return ErrRes
 	}
 
-	return n.rm.Pledge(caller, index, money, signature)
+	return n.rm.Pledge(caller, index, money)
 }
 
 // 取回token对应的代币, money zero means all
-func (n *Node) Withdraw(uid uint64, sig []byte, caller utils.Address, index uint64, tokenIndex uint32, money *big.Int, signature []byte) error {
+func (n *Node) Withdraw(uid uint64, sig []byte, caller utils.Address, index uint64, tokenIndex uint32, money *big.Int) error {
 	n.Lock()
 	defer n.Unlock()
 
@@ -242,11 +242,11 @@ func (n *Node) Withdraw(uid uint64, sig []byte, caller utils.Address, index uint
 		return ErrRes
 	}
 
-	return n.rm.Withdraw(caller, index, tokenIndex, money, signature)
+	return n.rm.Withdraw(caller, index, tokenIndex, money)
 }
 
 // 创建组，by admin
-func (n *Node) CreateGroup(uid uint64, sig []byte, caller utils.Address, inds []uint64, level uint16, asign []byte) error {
+func (n *Node) CreateGroup(uid uint64, sig []byte, caller utils.Address, level uint16) error {
 	n.Lock()
 	defer n.Unlock()
 
@@ -265,11 +265,11 @@ func (n *Node) CreateGroup(uid uint64, sig []byte, caller utils.Address, inds []
 		return ErrRes
 	}
 
-	return n.rm.CreateGroup(caller, inds, level, asign)
+	return n.rm.CreateGroup(caller, level)
 }
 
 // 向组中添加keeper，by keeper and admin
-func (n *Node) AddKeeperToGroup(uid uint64, sig []byte, caller utils.Address, index, gIndex uint64, ksign, asign []byte) error {
+func (n *Node) AddKeeperToGroup(uid uint64, sig []byte, caller utils.Address, index, gIndex uint64, asign []byte) error {
 	n.Lock()
 	defer n.Unlock()
 
@@ -288,11 +288,11 @@ func (n *Node) AddKeeperToGroup(uid uint64, sig []byte, caller utils.Address, in
 		return ErrRes
 	}
 
-	return n.rm.AddKeeperToGroup(caller, index, gIndex, ksign, asign)
+	return n.rm.AddKeeperToGroup(caller, index, gIndex, asign)
 }
 
 // 向组中添加provider
-func (n *Node) AddProviderToGroup(uid uint64, sig []byte, caller utils.Address, index, gIndex uint64, psign []byte) error {
+func (n *Node) AddProviderToGroup(uid uint64, sig []byte, caller utils.Address, index, gIndex uint64) error {
 	n.Lock()
 	defer n.Unlock()
 
@@ -311,10 +311,10 @@ func (n *Node) AddProviderToGroup(uid uint64, sig []byte, caller utils.Address, 
 		return ErrRes
 	}
 
-	return n.rm.AddProviderToGroup(caller, index, gIndex, psign)
+	return n.rm.AddProviderToGroup(caller, index, gIndex)
 }
 
-func (n *Node) Recharge(uid uint64, sig []byte, caller utils.Address, user uint64, tokenIndex uint32, money *big.Int, sign []byte) error {
+func (n *Node) Recharge(uid uint64, sig []byte, caller utils.Address, user uint64, tokenIndex uint32, money *big.Int) error {
 	n.Lock()
 	defer n.Unlock()
 
@@ -333,7 +333,7 @@ func (n *Node) Recharge(uid uint64, sig []byte, caller utils.Address, user uint6
 		return ErrRes
 	}
 
-	return n.rm.Recharge(caller, user, tokenIndex, money, sign)
+	return n.rm.Recharge(caller, user, tokenIndex, money)
 }
 
 func (n *Node) ProWithdraw(uid uint64, sig []byte, caller utils.Address, proIndex uint64, tokenIndex uint32, pay, lost *big.Int, ksigns [][]byte) error {
@@ -358,7 +358,7 @@ func (n *Node) ProWithdraw(uid uint64, sig []byte, caller utils.Address, proInde
 	return n.rm.ProWithdraw(caller, proIndex, tokenIndex, pay, lost, ksigns)
 }
 
-func (n *Node) WithdrawFromFs(uid uint64, sig []byte, caller utils.Address, index uint64, tokenIndex uint32, amount *big.Int, sign []byte) error {
+func (n *Node) WithdrawFromFs(uid uint64, sig []byte, caller utils.Address, index uint64, tokenIndex uint32, amount *big.Int) error {
 	n.Lock()
 	defer n.Unlock()
 
@@ -377,7 +377,7 @@ func (n *Node) WithdrawFromFs(uid uint64, sig []byte, caller utils.Address, inde
 		return ErrRes
 	}
 
-	return n.rm.WithdrawFromFs(caller, index, tokenIndex, amount, sign)
+	return n.rm.WithdrawFromFs(caller, index, tokenIndex, amount)
 }
 
 func (n *Node) AddOrder(uid uint64, sig []byte, caller utils.Address, user, proIndex, start, end, size, nonce uint64, tokenIndex uint32, sprice *big.Int, usign, psign []byte, ksigns [][]byte) error {

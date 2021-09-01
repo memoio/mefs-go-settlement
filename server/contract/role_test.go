@@ -2,12 +2,53 @@ package contract
 
 import (
 	"crypto/rand"
+	"fmt"
 	"math/big"
+	"reflect"
 	"testing"
 	"time"
 
+	"github.com/fxamacker/cbor/v2"
+	"github.com/jinzhu/copier"
 	"github.com/memoio/go-settlement/utils"
 )
+
+func TestReflect(t *testing.T) {
+	bi := &GroupInfo{
+		Size:    big.NewInt(20),
+		Keepers: []uint64{4},
+	}
+
+	nbi := &GroupInfo{}
+	err := copier.Copy(nbi, bi)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	typ := reflect.TypeOf(bi)
+	fmt.Println(bi.Size, nbi.Size, typ)
+
+	b, err := cbor.Marshal(bi)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	nb, err := cbor.Marshal(nbi)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fmt.Println(len(b))
+	fmt.Println(nb)
+
+	testb := new(GroupInfo)
+	err = cbor.Unmarshal(nb, testb)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fmt.Println(testb.Size, testb.Keepers[0])
+
+	t.Fatal("end")
+}
 
 func TestErc(t *testing.T) {
 	testErc(t)
@@ -108,7 +149,7 @@ func testAddToken(t *testing.T, rAddr, tAddr utils.Address) {
 
 	ts := rm.GetAllTokens(rm.GetOwnerAddress())
 
-	err = rm.RegisterToken(rm.GetOwnerAddress(), et.GetContractAddress(), nil)
+	err = rm.RegisterToken(rm.GetOwnerAddress(), et.GetContractAddress())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -176,7 +217,7 @@ func testPledge(t *testing.T, rAddr utils.Address, amount *big.Int) uint64 {
 
 	t.Log("pledge has:", getBalance(ts[0], rm.GetPledgeAddress(userAddr)))
 
-	err = rm.Pledge(userAddr, ui.Index, amount, nil)
+	err = rm.Pledge(userAddr, ui.Index, amount)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -243,7 +284,7 @@ func testWithdrawPledge(t *testing.T, rAddr utils.Address, Index uint64, tIndex 
 
 	bres := pp.GetPledge(userAddr)
 
-	err = rm.Withdraw(userAddr, ui.Index, tIndex, big.NewInt(0), nil)
+	err = rm.Withdraw(userAddr, ui.Index, tIndex, big.NewInt(0))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -312,21 +353,18 @@ func testCreateProvider(t *testing.T, rAddr utils.Address) uint64 {
 	return Index
 }
 
-func testCreateGroup(t *testing.T, rAddr utils.Address, inds []uint64) uint64 {
+func testCreateGroup(t *testing.T, rAddr utils.Address) uint64 {
 	rm, err := getRoleMgr(rAddr)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	err = rm.CreateGroup(rm.GetOwnerAddress(), inds, 7, nil)
+	err = rm.CreateGroup(rm.GetOwnerAddress(), 7)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	gs := rm.GetAllGroups(rm.GetOwnerAddress())
-	if len(gs) == 0 || gs[len(gs)-1].Level != 7 || !gs[len(gs)-1].IsActive {
-		t.Fatal("create group fails")
-	}
 
 	return uint64(len(gs) - 1)
 }
@@ -338,7 +376,7 @@ func testAddKeeper(t *testing.T, rAddr utils.Address, gIndex uint64) uint64 {
 		t.Fatal(err)
 	}
 
-	err = rm.AddKeeperToGroup(rm.GetOwnerAddress(), kindex, gIndex, nil, nil)
+	err = rm.AddKeeperToGroup(rm.GetOwnerAddress(), kindex, gIndex, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -364,7 +402,7 @@ func testAddProvider(t *testing.T, rAddr utils.Address, gIndex uint64) uint64 {
 		t.Fatal(err)
 	}
 
-	err = rm.AddProviderToGroup(rm.GetOwnerAddress(), pindex, gIndex, nil)
+	err = rm.AddProviderToGroup(rm.GetOwnerAddress(), pindex, gIndex)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -407,7 +445,7 @@ func testCreateUser(t *testing.T, rAddr utils.Address, gIndex uint64) uint64 {
 		t.Fatal(err)
 	}
 
-	err = rm.RegisterUser(userAddr, ui.Index, 0, 0, nil, nil)
+	err = rm.RegisterUser(userAddr, ui.Index, 0, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -434,7 +472,7 @@ func testCreateUser(t *testing.T, rAddr utils.Address, gIndex uint64) uint64 {
 		t.Fatal(err)
 	}
 
-	err = fm.Recharge(userAddr, ui.Index, 0, big.NewInt(1000000000000), nil)
+	err = fm.Recharge(fm.GetOwnerAddress(), userAddr, ui.Index, 0, big.NewInt(1000000000000))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -498,12 +536,6 @@ func testAddOrder(t *testing.T, rAddr utils.Address, kIndex, userIndex, proIndex
 	if uCost.Cmp(payAndTax) != 0 {
 		t.Fatal("add order to pro fails, user cost not right")
 	}
-
-	pErn := new(big.Int).Sub(lock, block)
-	if pErn.Cmp(pay) != 0 {
-		t.Fatal("add order to pro fails")
-	}
-
 }
 
 func testSubOrder(t *testing.T, rAddr utils.Address, kIndex, userIndex, proIndex, start, end, size, nonce uint64) {
@@ -562,7 +594,7 @@ func testProWithdraw(t *testing.T, rAddr utils.Address, proIndex uint64, amount,
 	se := fm.GetSettleInfo(pAddr, proIndex, 0)
 	paid := new(big.Int).Set(se.HasPaid)
 
-	err = fm.ProWithdraw(pAddr, proIndex, 0, amount, lost, nil)
+	err = fm.ProWithdraw(pAddr, proIndex, 0, amount, lost)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -617,7 +649,7 @@ func testFsWithdraw(t *testing.T, rAddr utils.Address, kIndex uint64, amount *bi
 	bavil, block := fm.GetBalance(kAddr, kIndex, 0)
 	t.Log(kIndex, "before:", bavil, block)
 
-	err = fm.Withdraw(kAddr, kIndex, 0, amount, nil)
+	err = fm.Withdraw(kAddr, kIndex, 0, amount)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -654,13 +686,12 @@ func TestRole(t *testing.T) {
 	uindex3 := testCreateProvider(t, rAddr)
 	testWithdrawPledge(t, rAddr, uindex3, 0, true)
 
+	gIndex := testCreateGroup(t, rAddr)
 	var keepers []uint64
 	for i := 0; i < 7; i++ {
-		ind := testCreateKeeper(t, rAddr)
+		ind := testAddKeeper(t, rAddr, gIndex)
 		keepers = append(keepers, ind)
 	}
-
-	gIndex := testCreateGroup(t, rAddr, keepers)
 
 	kIndex := testAddKeeper(t, rAddr, gIndex)
 	pIndex := testAddProvider(t, rAddr, gIndex)
