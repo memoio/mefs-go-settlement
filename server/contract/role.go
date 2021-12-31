@@ -934,14 +934,6 @@ func (r *roleMgr) SubOrder(caller utils.Address, user, proIndex, start, end, siz
 		return err
 	}
 
-	gi.Size.Sub(gi.Size, new(big.Int).SetUint64(size))
-	gi.Price.Sub(gi.Price, sprice)
-
-	if tokenIndex == 0 {
-		r.price.Sub(r.price, sprice)
-		r.size.Sub(r.size, new(big.Int).SetUint64(size))
-	}
-
 	return nil
 }
 
