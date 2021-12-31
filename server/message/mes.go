@@ -11,9 +11,8 @@ import (
 type Message struct {
 	Version uint32
 
-	To   uint64
-	From uint64 // fsID/userID/providerID/keeperID
-
+	To    uint64
+	From  uint64 // userID/providerID/keeperID
 	Nonce uint64
 
 	Value *big.Int
@@ -30,28 +29,7 @@ type SignedMessage struct {
 	Signature []byte // signed by Tx.From; bls sig
 }
 
-type MethodType uint32
-
-const (
-	Register MethodType = iota
-	RegisterToken
-	RegisterKeeper
-	RegisterProvider
-	RegisterUser
-	CreateGroup
-	SetReady
-	AddKeeperToGroup
-	AddProviderToGroup
-	Pledge
-	Withdraw
-	Recharge
-	WithdrawFromFs
-	ProWithdraw
-	AddOrder
-	SubOrder
-)
-
-type ParasRegister struct {
+type ParasBase struct {
 	Addr utils.Address
 	Sig  []byte
 }
@@ -201,9 +179,6 @@ type ParasOrder struct {
 	Nonce      uint64
 	TokenIndex uint32
 	Price      *big.Int
-	Usign      []byte
-	Psign      []byte
-	Auth       [][]byte
 }
 
 type SignedParasOrder struct {

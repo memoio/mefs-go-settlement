@@ -15,9 +15,18 @@ import (
 
 func TestReflect(t *testing.T) {
 	bi := &GroupInfo{
-		Size:    big.NewInt(20),
-		Keepers: []uint64{4},
+		IsActive: true,
+		Size:     big.NewInt(20),
+		Keepers:  []uint64{4},
 	}
+
+	bin := new(GroupInfo)
+	*bin = *bi
+
+	bi.Level = 10
+	bi.Size.Add(bi.Size, big.NewInt(5))
+
+	fmt.Println(bi.Level, bin.Level, bi.Size, bin.Size)
 
 	nbi := &GroupInfo{}
 	err := copier.Copy(nbi, bi)
@@ -45,7 +54,16 @@ func TestReflect(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	fmt.Println(testb.Size, testb.Keepers[0])
+
+	testw := new(BaseInfo)
+	err = cbor.Unmarshal(nb, testw)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	fmt.Println(testw.IsActive)
 
 	t.Fatal("end")
 }

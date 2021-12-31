@@ -326,11 +326,6 @@ func (f *fsMgr) AddOrder(caller utils.Address, kindex, user, proIndex, start, en
 		return ErrPermission
 	}
 
-	// check params
-	if size <= 0 {
-		return ErrInput
-	}
-
 	_, ok := f.tAcc[tokenIndex]
 	if !ok {
 		f.tAcc[tokenIndex] = big.NewInt(0)

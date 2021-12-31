@@ -77,6 +77,9 @@ type roleMgr struct {
 	spaceTime *big.Int
 	totalPaid *big.Int
 	totalPay  *big.Int
+
+	subPMap map[uint64]*big.Int
+	subSMap map[uint64]*big.Int
 }
 
 // NewRoleMgr can be admin by mutiple signatures
@@ -134,6 +137,9 @@ func NewRoleMgr(caller, foundation, primaryToken utils.Address, kPledge, pPledge
 		totalPaid: big.NewInt(0),
 		totalPay:  big.NewInt(0),
 		spaceTime: big.NewInt(0),
+
+		subPMap: make(map[uint64]*big.Int),
+		subSMap: make(map[uint64]*big.Int),
 	}
 
 	ti := &tokenInfo{
@@ -725,6 +731,22 @@ func (r *roleMgr) WithdrawFromFs(caller utils.Address, index uint64, tokenIndex 
 // order ops
 func (r *roleMgr) AddOrder(caller utils.Address, user, proIndex, start, end, size, nonce uint64, tokenIndex uint32, sprice *big.Int, usign, psign []byte, ksigns [][]byte) error {
 	log.Info("AddOrder")
+
+	// check params
+	if size <= 0 {
+		return ErrInput
+	}
+
+	if end <= start {
+		return ErrInput
+	}
+
+	// align to day
+	_end := end
+	if (_end/86400)*86400 != end {
+		return ErrInput
+	}
+
 	// verify ksigns
 	// verify usign
 	// verify psign
@@ -773,24 +795,70 @@ func (r *roleMgr) AddOrder(caller utils.Address, user, proIndex, start, end, siz
 
 	// 增发
 	if tokenIndex == 0 {
+		// add sub price and size
+		subprice, ok := r.subPMap[end]
+		if ok {
+			subprice.Add(subprice, sprice)
+		} else {
+			r.subPMap[end] = new(big.Int).Set(sprice)
+		}
+
+		subSize, ok := r.subSMap[end]
+		if ok {
+			subSize.Add(subSize, new(big.Int).SetUint64(size))
+		} else {
+			r.subSMap[end] = new(big.Int).SetUint64(size)
+		}
+
+		// todo: edge case ok?
+		ntime := GetTime()
+		if ntime-r.lastMint > 86400 {
+			ntime = r.lastMint + 86400
+		}
+
+		dur := new(big.Int).SetUint64(ntime - r.lastMint)
+		paid := new(big.Int).Mul(r.price, dur)
+		// cross day
+		if r.lastMint/86400 < ntime/86400 {
+			midTime := (ntime / 86400) * 86400
+			sp, ok := r.subPMap[midTime]
+			if ok {
+				subPay := new(big.Int).Mul(sp, new(big.Int).SetUint64(ntime-midTime))
+				paid.Sub(paid, subPay)
+				// update
+				gi.Price.Add(gi.Price, sprice)
+				r.price.Sub(r.price, sp)
+			}
+			ssize, ok := r.subSMap[midTime]
+			if ok {
+				gi.Size.Add(gi.Size, new(big.Int).SetUint64(size))
+				r.size.Sub(r.size, ssize)
+			}
+		}
+		r.totalPaid.Add(r.totalPaid, paid)
+
+		// update info in group
 		gi.Size.Add(gi.Size, new(big.Int).SetUint64(size))
 		gi.Price.Add(gi.Price, sprice)
 
-		ntime := GetTime()
-		dur := new(big.Int).SetUint64(ntime - r.lastMint)
+		// update info
+		// update spacetime for reward ratio
+		st := new(big.Int).Mul(r.size, new(big.Int).SetUint64(end-start))
+		r.spaceTime.Add(r.spaceTime, st)
 
-		paid := new(big.Int).Mul(r.price, dur)
+		// update total pay
+		pay := new(big.Int).Mul(sprice, new(big.Int).SetUint64(end-start))
+		r.totalPay.Add(r.totalPay, pay)
 
-		reward := new(big.Int).Sub(r.totalPay, r.totalPaid)
+		r.size.Add(r.size, new(big.Int).SetUint64(size))
+		r.price.Add(r.price, sprice)
 
-		if r.price.Cmp(zero) > 0 {
-			length := new(big.Int).Div(reward, r.price) // length
-			reward.Div(reward, length)
-			reward.Mul(reward, dur)
+		if paid.Cmp(zero) <= 0 {
+			r.lastMint = ntime
+			return nil
 		}
 
-		log.Info("AddOrder: send to pledge: ", reward)
-
+		// cal reward
 		for i := r.mintLevel + 1; i < len(r.mint); i++ {
 			esize := new(big.Int).SetUint64(r.mint[i].Size)
 			if esize.Cmp(r.size) < 0 {
@@ -805,17 +873,7 @@ func (r *roleMgr) AddOrder(caller utils.Address, user, proIndex, start, end, siz
 				break
 			}
 		}
-		log.Info("AddOrder: send to pledge: ", reward)
-
-		st := new(big.Int).Mul(r.size, new(big.Int).SetUint64(end-start))
-		r.spaceTime.Add(r.spaceTime, st)
-
-		r.size.Add(r.size, new(big.Int).SetUint64(size))
-		r.price.Add(r.price, sprice)
-		pay := new(big.Int).Mul(sprice, new(big.Int).SetUint64(end-start))
-		r.totalPay.Add(r.totalPay, pay)
-
-		reward.Mul(reward, new(big.Int).SetUint64(uint64(r.mint[r.mintLevel].Ratio)))
+		reward := new(big.Int).Mul(paid, new(big.Int).SetUint64(uint64(r.mint[r.mintLevel].Ratio)))
 		reward.Div(reward, new(big.Int).SetUint64(100))
 
 		err = sendBalance(r.tokens[0], r.local, r.pledge, reward)
@@ -823,7 +881,7 @@ func (r *roleMgr) AddOrder(caller utils.Address, user, proIndex, start, end, siz
 			return err
 		}
 		log.Info("AddOrder: send to pledge: ", reward)
-		r.totalPaid.Add(r.totalPaid, paid)
+
 		log.Info("AddOrder: totalPay: ", r.totalPay, r.totalPaid, r.lastMint, ntime)
 
 		r.lastMint = ntime
