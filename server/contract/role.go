@@ -826,12 +826,10 @@ func (r *roleMgr) AddOrder(caller utils.Address, user, proIndex, start, end, siz
 				subPay := new(big.Int).Mul(sp, new(big.Int).SetUint64(ntime-midTime))
 				paid.Sub(paid, subPay)
 				// update
-				gi.Price.Add(gi.Price, sprice)
 				r.price.Sub(r.price, sp)
 			}
 			ssize, ok := r.subSMap[midTime]
 			if ok {
-				gi.Size.Add(gi.Size, new(big.Int).SetUint64(size))
 				r.size.Sub(r.size, ssize)
 			}
 		}
@@ -843,7 +841,7 @@ func (r *roleMgr) AddOrder(caller utils.Address, user, proIndex, start, end, siz
 
 		// update info
 		// update spacetime for reward ratio
-		st := new(big.Int).Mul(r.size, new(big.Int).SetUint64(end-start))
+		st := new(big.Int).Mul(new(big.Int).SetUint64(size), new(big.Int).SetUint64(end-start))
 		r.spaceTime.Add(r.spaceTime, st)
 
 		// update total pay
@@ -933,6 +931,9 @@ func (r *roleMgr) SubOrder(caller utils.Address, user, proIndex, start, end, siz
 	if err != nil {
 		return err
 	}
+
+	gi.Size.Sub(gi.Size, new(big.Int).SetUint64(size))
+	gi.Price.Sub(gi.Price, sprice)
 
 	return nil
 }
