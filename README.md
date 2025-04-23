@@ -2,94 +2,102 @@
 
 ## rule
 
-+ 模仿合约，caller替代合约中的msg.sender
-+ 不对map进行直接遍历，通常存放一个数组用于遍历
-+ 使用globalMap存放所有合约和接口的对应
++ Imitate the contract, caller replaces msg.sender in the contract
 
-## 使用
++ Do not traverse the map directly, usually store an array for traversal
+
++ Use globalMap to store the correspondence of all contracts and interfaces
+
+## Use
 
 ### ErcToken
 
-ERC2.0代币，主要功能：
+ERC2.0 token, main functions:
 
-+ 查询余额，查询代支付余额
-+ Transfer 直接转账
-+ Approve和TransferFrom配合使用： 1. A 用Approve 允许B使用 amount金额，2. B 用TransferFrom 从A中转账出去；此情形用于合约中转账给合约
++ Check balance, check payment balance
++ Transfer direct transfer
++ Approve and TransferFrom are used together: 1. A uses Approve to allow B to use amount, 2. B uses TransferFrom to transfer from A; this situation is used to transfer from contract to contract
 
 ### RoleMgr
 
-角色管理，主要功能：
+Role management, main functions:
 
-+ 角色有0，user：1，provider：2，keeper：3； 每个地址只能成为1/2/3中一个
-+ 每个address都要调用Register，然后获得系统的index，作为系统地址，此时角色为0
-+ 可以质押，Pledge
-+ Pledge后可以注册成为keeper和provider
-+ admin创建group，每个组有个fsMgr合约地址
-  
++ There are 0 roles, user: 1, provider: 2, keeper: 3; each address can only be one of 1/2/3
+
++ Each address must call Register, and then obtain the system index as the system address, at this time the role is 0
+
++ Can pledge, Pledge
++ After Pledge, you can register as a keeper and provider
++ Admin creates a group, each group has an fsMgr contract address
+
 ### FsMgr
 
-存储管理，主要功能：
+Storage management, main functions:
 
-+ 在CreateFs后，需要在RoleMgr中注册成为user
-+ AddOrder加入用户每一个订单
-+ SubOrder在订单过期后调用
-+ provider费用：根据价格，存储量，以及已存储时长在线下共识后，线上获取；
-+ keeper组费用：4%订单费用，3%根据provider获取时获取；1%在订单到期后获取；
-+ keeper内部分成：根据调用AddOrder，SubOrder的次数，来分成
++ After CreateFs, you need to register as a user in RoleMgr
 
-## 流程
++ AddOrder adds each order of the user
+
++ SubOrder is called after the order expires
+
++ Provider fee: based on price, storage volume, and storage time, after offline consensus, online acquisition;
+
++ Keeper group fee: 4% order fee, 3% obtained when the provider is obtained; 1% obtained after the order expires;
+
++ Keeper internal division: divided according to the number of calls to AddOrder and SubOrder
+
+## Process
 
 ### pre1
 
-admin创建RoleMgr合约
+admin creates RoleMgr contract
 
 ### pre2
 
 + admin CreateGroup
 
-### 注册keeper
+### Register keeper
 
-基于pre1
+Based on pre1
 
-+ Register获取index；
-+ Pledge质押
-+ RegisterKeeper注册
++ Register to obtain index;
+
++ Pledge pledge
++ RegisterKeeper registration
 + Withdraw
 
-基于pre2
+Based on pre2
 
-+ 加入某group
++ Join a group
 
-### 注册provider
+### Register provider
 
-基于pre
+Based on pre
 
-+ Register获取index；
-+ Pledge质押
-+ RegisterKeeper注册
++ Register to get index;
++ Pledge
++ RegisterKeeper to register
 + Withdraw
 
-基于pre2
+Based on pre2
 
-+ 加入某group
++ Join a group
 
-### 注册user
+### Register user
 
-基于pre
+Based on pre
 
-+ Register获取index；
++ Register to get index;
 
-基于pre2
+Based on pre2
 
-+ 加入某group
++ Join a group
 
-## 增发逻辑
+## Issuance logic
 
-+ 根据当前市场需要支付的额度进行增发额度
-+ 根据总时空值确定增发系数
-
++ Increase the amount according to the amount that the current market needs to pay
++ Determine the issuance coefficient according to the total time and space value
 
 ## todo
 
-+ 修复
-
++ Fix
